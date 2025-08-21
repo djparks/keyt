@@ -13,12 +13,15 @@ import javafx.scene.control.MenuItem;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextInputDialog;
+import javafx.scene.control.Dialog;
+import javafx.scene.control.PasswordField;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
 
 import java.io.File;
@@ -49,7 +52,7 @@ public class App extends Application {
         MenuBar menuBar = new MenuBar(helpMenu);
 
         // Drag-and-drop zone just below the menu
-        Label dropText = new Label("Drop a JKS file here");
+        Label dropText = new Label("Drop a JKS or PKS file here");
         StackPane dropZone = new StackPane(dropText);
         dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: rgba(0,0,0,0.02);");
         dropZone.setMinHeight(50);
@@ -91,15 +94,18 @@ public class App extends Application {
             Dragboard db = event.getDragboard();
             boolean success = false;
             if (db != null && db.hasFiles()) {
-                File jks = db.getFiles().stream()
-                        .filter(f -> f.getName().toLowerCase(Locale.ROOT).endsWith(".jks"))
+                File ksFile = db.getFiles().stream()
+                        .filter(f -> {
+                            String name = f.getName().toLowerCase(Locale.ROOT);
+                            return name.endsWith(".jks") || name.endsWith(".pks");
+                        })
                         .findFirst().orElse(null);
-                if (jks != null) {
-                    dropText.setText("Loading: " + jks.getName());
-                    loadKeystoreIntoTable(jks, stage);
+                if (ksFile != null) {
+                    dropText.setText("Loading: " + ksFile.getName());
+                    loadKeystoreIntoTable(ksFile, stage);
                     success = true;
                 } else {
-                    showError(stage, "Please drop a .jks file.");
+                    showError(stage, "Please drop a .jks or .pks file.");
                 }
             }
             event.setDropCompleted(success);
@@ -120,31 +126,27 @@ public class App extends Application {
         stage.show();
     }
 
-    private void loadKeystoreIntoTable(File jksFile, Stage owner) {
+    private void loadKeystoreIntoTable(File ksFile, Stage owner) {
         tableData.clear();
-        // Try with empty password first; if it fails, prompt the user.
-        char[] password = new char[0];
-        boolean loaded = false;
-        Exception lastError = null;
-        for (int attempt = 0; attempt < 3 && !loaded; attempt++) {
-            try (FileInputStream fis = new FileInputStream(jksFile)) {
-                KeyStore ks = KeyStore.getInstance("JKS");
-                ks.load(fis, password.length == 0 ? null : password);
-                populateTableFromKeyStore(ks);
-                loaded = true;
-            } catch (Exception ex) {
-                lastError = ex;
-                // Prompt for password unless user cancels
-                Optional<char[]> pw = promptForPassword(owner, attempt == 0 ? "Enter keystore password" : "Password incorrect. Try again");
-                if (pw.isPresent()) {
-                    password = pw.get();
-                } else {
-                    break;
-                }
-            }
+        // Ask for keystore and key password immediately when a file is dropped
+        Optional<Passwords> pwOpt = promptForKeystoreAndKeyPasswords(owner);
+        if (pwOpt.isEmpty()) {
+            return; // user cancelled
         }
-        if (!loaded) {
-            showError(owner, "Failed to load keystore: " + (lastError != null ? lastError.getMessage() : "unknown error"));
+        Passwords pw = pwOpt.get();
+        String name = ksFile.getName().toLowerCase(Locale.ROOT);
+        String type = name.endsWith(".pks") ? "PKCS12" : "JKS";
+        try (FileInputStream fis = new FileInputStream(ksFile)) {
+            KeyStore ks = KeyStore.getInstance(type);
+            char[] ksPwd = (pw.keystorePassword != null && pw.keystorePassword.length > 0) ? pw.keystorePassword : null;
+            ks.load(fis, ksPwd);
+            populateTableFromKeyStore(ks);
+        } catch (Exception ex) {
+            showError(owner, "Failed to load keystore: " + ex.getMessage());
+        } finally {
+            // Clear password arrays for security
+            if (pw.keystorePassword != null) java.util.Arrays.fill(pw.keystorePassword, '\0');
+            if (pw.keyPassword != null) java.util.Arrays.fill(pw.keyPassword, '\0');
         }
     }
 
@@ -179,6 +181,47 @@ public class App extends Application {
         if (owner != null) dialog.initOwner(owner);
         Optional<String> result = dialog.showAndWait();
         return result.map(String::toCharArray);
+    }
+
+    private Optional<Passwords> promptForKeystoreAndKeyPasswords(Stage owner) {
+        Dialog<Passwords> dialog = new Dialog<>();
+        dialog.setTitle("Keystore Credentials");
+        dialog.setHeaderText("Enter keystore and key passwords");
+        if (owner != null) dialog.initOwner(owner);
+        dialog.getDialogPane().getButtonTypes().setAll(ButtonType.OK, ButtonType.CANCEL);
+
+        PasswordField ksField = new PasswordField();
+        ksField.setPromptText("Keystore password (can be empty)");
+        PasswordField keyField = new PasswordField();
+        keyField.setPromptText("Key password (optional)");
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.add(new Label("Keystore password:"), 0, 0);
+        grid.add(ksField, 1, 0);
+        grid.add(new Label("Key password:"), 0, 1);
+        grid.add(keyField, 1, 1);
+        dialog.getDialogPane().setContent(grid);
+
+        dialog.setResultConverter(button -> {
+            if (button == ButtonType.OK) {
+                Passwords p = new Passwords();
+                String ksText = ksField.getText();
+                String keyText = keyField.getText();
+                p.keystorePassword = ksText == null ? new char[0] : ksText.toCharArray();
+                p.keyPassword = keyText == null ? new char[0] : keyText.toCharArray();
+                return p;
+            }
+            return null;
+        });
+
+        return dialog.showAndWait();
+    }
+
+    private static class Passwords {
+        char[] keystorePassword;
+        char[] keyPassword;
     }
 
     private void showError(Stage owner, String msg) {
