@@ -29,7 +29,9 @@ import java.io.FileInputStream;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.security.cert.CertificateFactory;
 import java.text.SimpleDateFormat;
+import java.util.Collection;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.Locale;
@@ -52,7 +54,7 @@ public class App extends Application {
         MenuBar menuBar = new MenuBar(helpMenu);
 
         // Drag-and-drop zone just below the menu
-        Label dropText = new Label("Drop a JKS or PKS file here");
+        Label dropText = new Label("Drop a JKS, PKS, CERT/CRT/PEM/DER file here");
         StackPane dropZone = new StackPane(dropText);
         dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: rgba(0,0,0,0.02);");
         dropZone.setMinHeight(50);
@@ -97,15 +99,20 @@ public class App extends Application {
                 File ksFile = db.getFiles().stream()
                         .filter(f -> {
                             String name = f.getName().toLowerCase(Locale.ROOT);
-                            return name.endsWith(".jks") || name.endsWith(".pks");
+                            return name.endsWith(".jks") || name.endsWith(".pks") || name.endsWith(".cert") || name.endsWith(".crt") || name.endsWith(".pem")  || name.endsWith(".der");
                         })
                         .findFirst().orElse(null);
                 if (ksFile != null) {
                     dropText.setText("Loading: " + ksFile.getName());
-                    loadKeystoreIntoTable(ksFile, stage);
+                    String lower = ksFile.getName().toLowerCase(Locale.ROOT);
+                    if (lower.endsWith(".jks") || lower.endsWith(".pks")) {
+                        loadKeystoreIntoTable(ksFile, stage);
+                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem")  || lower.endsWith(".der")) {
+                        loadCertificatesIntoTable(ksFile, stage);
+                    }
                     success = true;
                 } else {
-                    showError(stage, "Please drop a .jks or .pks file.");
+                    showError(stage, "Please drop a .jks, .pks, .cert, .crt, .der or .pem file.");
                 }
             }
             event.setDropCompleted(success);
@@ -170,6 +177,33 @@ public class App extends Application {
                 serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
             }
             tableData.add(new TableRowData(alias, entryType, validFrom, validUntil, sigAlg, serial));
+        }
+    }
+
+    private void loadCertificatesIntoTable(File certFile, Stage owner) {
+        tableData.clear();
+        try (FileInputStream fis = new FileInputStream(certFile)) {
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            Collection<? extends Certificate> certs = cf.generateCertificates(fis);
+            populateTableFromCertificates(certs, certFile.getName());
+        } catch (Exception ex) {
+            showError(owner, "Failed to load certificate: " + ex.getMessage());
+        }
+    }
+
+    private void populateTableFromCertificates(Collection<? extends Certificate> certs, String fileName) {
+        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
+        int idx = 1;
+        for (Certificate cert : certs) {
+            if (cert instanceof X509Certificate x509) {
+                String alias = x509.getSubjectX500Principal() != null ? x509.getSubjectX500Principal().getName() : (fileName + "#" + idx);
+                String validFrom = fmt.format(x509.getNotBefore());
+                String validUntil = fmt.format(x509.getNotAfter());
+                String sigAlg = x509.getSigAlgName();
+                String serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
+                tableData.add(new TableRowData(alias, "Certificate", validFrom, validUntil, sigAlg, serial));
+                idx++;
+            }
         }
     }
 
