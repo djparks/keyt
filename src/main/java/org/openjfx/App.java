@@ -56,7 +56,7 @@ public class App extends Application {
         // Drag-and-drop zone just below the menu
         Label dropText = new Label("Drop a JKS, PKS, CERT/CRT/PEM/DER file here");
         StackPane dropZone = new StackPane(dropText);
-        dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: rgba(0,0,0,0.02);");
+        dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: #f5f5f5;");
         dropZone.setMinHeight(50);
 
         // TableView setup
