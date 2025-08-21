@@ -1,6 +1,8 @@
 package org.openjfx;
 
 import javafx.application.Application;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
@@ -8,31 +10,37 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuBar;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TextInputDialog;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.layout.Priority;
 import javafx.stage.Stage;
 
 import java.io.File;
-import java.util.List;
+import java.io.FileInputStream;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.Locale;
+import java.util.Optional;
 
 /**
  * JavaFX App
  */
 public class App extends Application {
 
+    private final ObservableList<TableRowData> tableData = FXCollections.observableArrayList();
+
     @Override
     public void start(Stage stage) {
-        var javaVersion = SystemInfo.javaVersion();
-        var javafxVersion = SystemInfo.javafxVersion();
-
-        // Center content (will be placed below drop zone)
-        var infoLabel = new Label("Hello, JavaFX " + javafxVersion + ", running on Java " + javaVersion + ".");
-        var center = new StackPane(infoLabel);
-
         // Menu bar with Help -> About
         MenuItem aboutItem = new MenuItem("About");
         aboutItem.setOnAction(e -> showAboutDialog(stage));
@@ -41,10 +49,22 @@ public class App extends Application {
         MenuBar menuBar = new MenuBar(helpMenu);
 
         // Drag-and-drop zone just below the menu
-        Label dropText = new Label("Drop files here");
+        Label dropText = new Label("Drop a JKS file here");
         StackPane dropZone = new StackPane(dropText);
         dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: rgba(0,0,0,0.02);");
-        dropZone.setMinHeight(120);
+        dropZone.setMinHeight(40);
+
+        // TableView setup
+        TableView<TableRowData> tableView = new TableView<>(tableData);
+        tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+
+        TableColumn<TableRowData, String> aliasCol = new TableColumn<>("Alias Name");
+        aliasCol.setCellValueFactory(cell -> cell.getValue().aliasProperty());
+
+        TableColumn<TableRowData, String> validFromCol = new TableColumn<>("Valid From");
+        validFromCol.setCellValueFactory(cell -> cell.getValue().validFromProperty());
+
+        tableView.getColumns().addAll(aliasCol, validFromCol);
 
         // DnD handlers
         dropZone.setOnDragOver(event -> {
@@ -59,28 +79,25 @@ public class App extends Application {
             Dragboard db = event.getDragboard();
             boolean success = false;
             if (db != null && db.hasFiles()) {
-                List<File> files = db.getFiles();
-                StringBuilder sb = new StringBuilder();
-                sb.append("Dropped ").append(files.size()).append(" file(s):\n");
-                int maxShow = Math.min(files.size(), 5);
-                for (int i = 0; i < maxShow; i++) {
-                    sb.append(files.get(i).getName()).append("\n");
+                File jks = db.getFiles().stream()
+                        .filter(f -> f.getName().toLowerCase(Locale.ROOT).endsWith(".jks"))
+                        .findFirst().orElse(null);
+                if (jks != null) {
+                    dropText.setText("Loading: " + jks.getName());
+                    loadKeystoreIntoTable(jks, stage);
+                    success = true;
+                } else {
+                    showError(stage, "Please drop a .jks file.");
                 }
-                if (files.size() > maxShow) {
-                    sb.append("...");
-                }
-                dropText.setText(sb.toString());
-                success = true;
             }
             event.setDropCompleted(success);
             event.consume();
         });
 
-        // Layout: Menu at top, then drop zone, then original center content
+        // Layout: Menu at top, then drop zone, then table
         VBox content = new VBox(10);
-        content.getChildren().addAll(dropZone, center);
-        VBox.setVgrow(dropZone, Priority.ALWAYS); // make drop zone resize with the window
-        VBox.setVgrow(center, Priority.ALWAYS);
+        content.getChildren().addAll(dropZone, tableView);
+        VBox.setVgrow(tableView, Priority.ALWAYS);
 
         BorderPane root = new BorderPane();
         root.setTop(menuBar);
@@ -89,6 +106,66 @@ public class App extends Application {
         var scene = new Scene(root, 640, 480);
         stage.setScene(scene);
         stage.show();
+    }
+
+    private void loadKeystoreIntoTable(File jksFile, Stage owner) {
+        tableData.clear();
+        // Try with empty password first; if it fails, prompt the user.
+        char[] password = new char[0];
+        boolean loaded = false;
+        Exception lastError = null;
+        for (int attempt = 0; attempt < 3 && !loaded; attempt++) {
+            try (FileInputStream fis = new FileInputStream(jksFile)) {
+                KeyStore ks = KeyStore.getInstance("JKS");
+                ks.load(fis, password.length == 0 ? null : password);
+                populateTableFromKeyStore(ks);
+                loaded = true;
+            } catch (Exception ex) {
+                lastError = ex;
+                // Prompt for password unless user cancels
+                Optional<char[]> pw = promptForPassword(owner, attempt == 0 ? "Enter keystore password" : "Password incorrect. Try again");
+                if (pw.isPresent()) {
+                    password = pw.get();
+                } else {
+                    break;
+                }
+            }
+        }
+        if (!loaded) {
+            showError(owner, "Failed to load keystore: " + (lastError != null ? lastError.getMessage() : "unknown error"));
+        }
+    }
+
+    private void populateTableFromKeyStore(KeyStore ks) throws Exception {
+        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
+        for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
+            String alias = e.nextElement();
+            Certificate cert = ks.getCertificate(alias);
+            String validFrom = "";
+            if (cert instanceof X509Certificate x509) {
+                Date notBefore = x509.getNotBefore();
+                validFrom = fmt.format(notBefore);
+            }
+            tableData.add(new TableRowData(alias, validFrom));
+        }
+    }
+
+    private Optional<char[]> promptForPassword(Stage owner, String message) {
+        TextInputDialog dialog = new TextInputDialog();
+        dialog.setTitle("Keystore Password");
+        dialog.setHeaderText(message);
+        dialog.setContentText("Password:");
+        if (owner != null) dialog.initOwner(owner);
+        Optional<String> result = dialog.showAndWait();
+        return result.map(String::toCharArray);
+    }
+
+    private void showError(Stage owner, String msg) {
+        Alert alert = new Alert(Alert.AlertType.ERROR, msg, ButtonType.CLOSE);
+        alert.setTitle("Error");
+        alert.setHeaderText(null);
+        if (owner != null) alert.initOwner(owner);
+        alert.showAndWait();
     }
 
     private void showAboutDialog(Stage owner) {
@@ -109,4 +186,16 @@ public class App extends Application {
         launch();
     }
 
+    // Simple data holder for the table
+    public static class TableRowData {
+        private final javafx.beans.property.SimpleStringProperty alias = new javafx.beans.property.SimpleStringProperty();
+        private final javafx.beans.property.SimpleStringProperty validFrom = new javafx.beans.property.SimpleStringProperty();
+
+        public TableRowData(String alias, String validFrom) {
+            this.alias.set(alias);
+            this.validFrom.set(validFrom);
+        }
+        public javafx.beans.property.SimpleStringProperty aliasProperty() { return alias; }
+        public javafx.beans.property.SimpleStringProperty validFromProperty() { return validFrom; }
+    }
 }
