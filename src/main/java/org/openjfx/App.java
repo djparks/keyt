@@ -52,7 +52,7 @@ public class App extends Application {
         Label dropText = new Label("Drop a JKS file here");
         StackPane dropZone = new StackPane(dropText);
         dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: rgba(0,0,0,0.02);");
-        dropZone.setMinHeight(40);
+        dropZone.setMinHeight(50);
 
         // TableView setup
         TableView<TableRowData> tableView = new TableView<>(tableData);
@@ -61,10 +61,22 @@ public class App extends Application {
         TableColumn<TableRowData, String> aliasCol = new TableColumn<>("Alias Name");
         aliasCol.setCellValueFactory(cell -> cell.getValue().aliasProperty());
 
+        TableColumn<TableRowData, String> entryTypeCol = new TableColumn<>("Entry Type");
+        entryTypeCol.setCellValueFactory(cell -> cell.getValue().entryTypeProperty());
+
         TableColumn<TableRowData, String> validFromCol = new TableColumn<>("Valid From");
         validFromCol.setCellValueFactory(cell -> cell.getValue().validFromProperty());
 
-        tableView.getColumns().addAll(aliasCol, validFromCol);
+        TableColumn<TableRowData, String> validUntilCol = new TableColumn<>("Valid Until");
+        validUntilCol.setCellValueFactory(cell -> cell.getValue().validUntilProperty());
+
+        TableColumn<TableRowData, String> sigAlgCol = new TableColumn<>("Signature Algorithm");
+        sigAlgCol.setCellValueFactory(cell -> cell.getValue().signatureAlgorithmProperty());
+
+        TableColumn<TableRowData, String> serialCol = new TableColumn<>("Serial Number");
+        serialCol.setCellValueFactory(cell -> cell.getValue().serialNumberProperty());
+
+        tableView.getColumns().addAll(aliasCol, entryTypeCol, validFromCol, validUntilCol, sigAlgCol, serialCol);
 
         // DnD handlers
         dropZone.setOnDragOver(event -> {
@@ -140,13 +152,22 @@ public class App extends Application {
         SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
         for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
             String alias = e.nextElement();
+            String entryType = ks.isKeyEntry(alias) ? "Private Key" : (ks.isCertificateEntry(alias) ? "Trusted Certificate" : "Unknown");
+
             Certificate cert = ks.getCertificate(alias);
             String validFrom = "";
+            String validUntil = "";
+            String sigAlg = "";
+            String serial = "";
             if (cert instanceof X509Certificate x509) {
                 Date notBefore = x509.getNotBefore();
+                Date notAfter = x509.getNotAfter();
                 validFrom = fmt.format(notBefore);
+                validUntil = fmt.format(notAfter);
+                sigAlg = x509.getSigAlgName();
+                serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
             }
-            tableData.add(new TableRowData(alias, validFrom));
+            tableData.add(new TableRowData(alias, entryType, validFrom, validUntil, sigAlg, serial));
         }
     }
 
@@ -189,13 +210,25 @@ public class App extends Application {
     // Simple data holder for the table
     public static class TableRowData {
         private final javafx.beans.property.SimpleStringProperty alias = new javafx.beans.property.SimpleStringProperty();
+        private final javafx.beans.property.SimpleStringProperty entryType = new javafx.beans.property.SimpleStringProperty();
         private final javafx.beans.property.SimpleStringProperty validFrom = new javafx.beans.property.SimpleStringProperty();
+        private final javafx.beans.property.SimpleStringProperty validUntil = new javafx.beans.property.SimpleStringProperty();
+        private final javafx.beans.property.SimpleStringProperty signatureAlgorithm = new javafx.beans.property.SimpleStringProperty();
+        private final javafx.beans.property.SimpleStringProperty serialNumber = new javafx.beans.property.SimpleStringProperty();
 
-        public TableRowData(String alias, String validFrom) {
+        public TableRowData(String alias, String entryType, String validFrom, String validUntil, String signatureAlgorithm, String serialNumber) {
             this.alias.set(alias);
+            this.entryType.set(entryType);
             this.validFrom.set(validFrom);
+            this.validUntil.set(validUntil);
+            this.signatureAlgorithm.set(signatureAlgorithm);
+            this.serialNumber.set(serialNumber);
         }
         public javafx.beans.property.SimpleStringProperty aliasProperty() { return alias; }
+        public javafx.beans.property.SimpleStringProperty entryTypeProperty() { return entryType; }
         public javafx.beans.property.SimpleStringProperty validFromProperty() { return validFrom; }
+        public javafx.beans.property.SimpleStringProperty validUntilProperty() { return validUntil; }
+        public javafx.beans.property.SimpleStringProperty signatureAlgorithmProperty() { return signatureAlgorithm; }
+        public javafx.beans.property.SimpleStringProperty serialNumberProperty() { return serialNumber; }
     }
 }
