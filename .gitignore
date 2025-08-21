@@ -1,0 +1,60 @@
+# ===== Java =====
+# Compiled class files
+*.class
+
+# Log files
+*.log
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Java Heap/Crash dumps
+hs_err_pid*
+replay_pid*.log
+
+# Packaged archives (often build outputs; for libraries you may commit specific ones explicitly)
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# ===== Maven =====
+# Build output
+/target/
+
+# Maven release and versions plugin files
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# Maven Shade plugin
+dependency-reduced-pom.xml
+
+# Build number plugin
+buildNumber.properties
+
+# Maven timing and wrapper cache
+.mvn/timing.properties
+# Many projects ignore the wrapper JAR; remove this line if you commit it intentionally
+.mvn/wrapper/maven-wrapper.jar
+
+# ===== IntelliJ IDEA =====
+# Project files
+.idea/
+# Module files
+*.iml
+*.iws
+*.ipr
+# IntelliJ build output
+/out/
+
+# ===== OS-specific (useful on macOS) =====
+.DS_Store
