@@ -60,6 +60,31 @@ public class App extends Application {
 
     @Override
     public void start(Stage stage) {
+        // Set window title and icons (including macOS Dock/task bar)
+        try {
+            var iconUrl = getClass().getResource("/icon.png");
+            if (iconUrl != null) {
+                // JavaFX window icon
+                try {
+                    javafx.scene.image.Image fxImage = new javafx.scene.image.Image(iconUrl.toExternalForm());
+                    stage.getIcons().add(fxImage);
+                } catch (Throwable ignored) { }
+
+                // macOS Dock/task bar icon via AWT Taskbar (if supported)
+                try {
+                    if (java.awt.Taskbar.isTaskbarSupported()) {
+                        java.awt.Taskbar taskbar = java.awt.Taskbar.getTaskbar();
+                        try (var is = iconUrl.openStream()) {
+                            java.awt.Image awtImage = javax.imageio.ImageIO.read(is);
+                            if (awtImage != null) {
+                                taskbar.setIconImage(awtImage);
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) { }
+            }
+        } catch (Throwable ignored) { }
+
         // Menu bar with File -> Export, Convert to PKS and Help -> About
         MenuItem exportItem = new MenuItem("Export");
         exportItem.setDisable(true);
