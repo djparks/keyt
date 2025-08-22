@@ -23,6 +23,12 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
+import javafx.stage.FileChooser;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Base64;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -42,16 +48,24 @@ import java.util.Optional;
  */
 public class App extends Application {
 
+    private KeyStore currentKeyStore = null;
+    private boolean keystoreLoaded = false;
+
     private final ObservableList<TableRowData> tableData = FXCollections.observableArrayList();
 
     @Override
     public void start(Stage stage) {
-        // Menu bar with Help -> About
+        // Menu bar with File -> Export and Help -> About
+        MenuItem exportItem = new MenuItem("Export");
+        exportItem.setDisable(true);
+        Menu fileMenu = new Menu("File");
+        fileMenu.getItems().add(exportItem);
+
         MenuItem aboutItem = new MenuItem("About");
         aboutItem.setOnAction(e -> showAboutDialog(stage));
         Menu helpMenu = new Menu("Help");
         helpMenu.getItems().add(aboutItem);
-        MenuBar menuBar = new MenuBar(helpMenu);
+        MenuBar menuBar = new MenuBar(fileMenu, helpMenu);
 
         // Drag-and-drop zone just below the menu
         Label dropText = new Label("Drop a JKS, PKS, CERT/CRT/PEM/DER file here");
@@ -82,6 +96,49 @@ public class App extends Application {
         serialCol.setCellValueFactory(cell -> cell.getValue().serialNumberProperty());
 
         tableView.getColumns().addAll(aliasCol, entryTypeCol, validFromCol, validUntilCol, sigAlgCol, serialCol);
+
+                // Enable export only when a keystore is loaded and exactly one row is selected
+                Runnable updateExportEnabled = () -> {
+                    boolean oneSelected = tableView.getSelectionModel().getSelectedItems().size() == 1;
+                    exportItem.setDisable(!(keystoreLoaded && oneSelected));
+                };
+                tableView.getSelectionModel().selectedItemProperty().addListener((obs, oldSel, newSel) -> updateExportEnabled.run());
+
+                // Export action: export selected entry's certificate to PEM or DER
+                exportItem.setOnAction(e -> {
+                    TableRowData row = tableView.getSelectionModel().getSelectedItem();
+                    if (row == null || !keystoreLoaded || currentKeyStore == null) {
+                        return;
+                    }
+                    try {
+                        String alias = row.aliasProperty().get();
+                        Certificate cert = currentKeyStore.getCertificate(alias);
+                        if (cert == null) {
+                            showError(stage, "No certificate found for alias: " + alias);
+                            return;
+                        }
+                        FileChooser chooser = new FileChooser();
+                        chooser.setTitle("Export Certificate");
+                        chooser.getExtensionFilters().addAll(
+                                new FileChooser.ExtensionFilter("PEM (*.pem)", "*.pem"),
+                                new FileChooser.ExtensionFilter("DER (*.der)", "*.der")
+                        );
+                        chooser.setInitialFileName(alias + ".pem");
+                        File out = chooser.showSaveDialog(stage);
+                        if (out == null) return;
+                        String name = out.getName().toLowerCase(Locale.ROOT);
+                        if (name.endsWith(".der")) {
+                            Files.write(out.toPath(), cert.getEncoded());
+                        } else {
+                            String pem = "-----BEGIN CERTIFICATE-----\n" +
+                                    Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII)).encodeToString(cert.getEncoded()) +
+                                    "\n-----END CERTIFICATE-----\n";
+                            Files.writeString(out.toPath(), pem, StandardCharsets.US_ASCII);
+                        }
+                    } catch (Exception ex) {
+                        showError(stage, "Failed to export: " + ex.getMessage());
+                    }
+                });
 
         // DnD handlers
         dropZone.setOnDragOver(event -> {
@@ -148,6 +205,8 @@ public class App extends Application {
             char[] ksPwd = (pw.keystorePassword != null && pw.keystorePassword.length > 0) ? pw.keystorePassword : null;
             ks.load(fis, ksPwd);
             populateTableFromKeyStore(ks);
+            this.currentKeyStore = ks;
+            this.keystoreLoaded = true;
         } catch (Exception ex) {
             showError(owner, "Failed to load keystore: " + ex.getMessage());
         } finally {
@@ -182,6 +241,8 @@ public class App extends Application {
 
     private void loadCertificatesIntoTable(File certFile, Stage owner) {
         tableData.clear();
+        this.currentKeyStore = null;
+        this.keystoreLoaded = false;
         try (FileInputStream fis = new FileInputStream(certFile)) {
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
             Collection<? extends Certificate> certs = cf.generateCertificates(fis);
