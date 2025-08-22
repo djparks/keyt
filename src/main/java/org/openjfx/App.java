@@ -25,9 +25,9 @@ import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
 import javafx.stage.FileChooser;
 
+import java.awt.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Base64;
 
 import java.io.File;
