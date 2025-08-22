@@ -32,6 +32,8 @@ import java.util.Base64;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.security.Key;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
@@ -50,16 +52,21 @@ public class App extends Application {
 
     private KeyStore currentKeyStore = null;
     private boolean keystoreLoaded = false;
+    private String currentKeystoreType = null; // "JKS" or "PKCS12"
+    private char[] currentKeystorePassword = null; // as entered when loading
+    private char[] currentKeyPassword = null; // optional, may be empty
 
     private final ObservableList<TableRowData> tableData = FXCollections.observableArrayList();
 
     @Override
     public void start(Stage stage) {
-        // Menu bar with File -> Export and Help -> About
+        // Menu bar with File -> Export, Convert to PKS and Help -> About
         MenuItem exportItem = new MenuItem("Export");
         exportItem.setDisable(true);
+        MenuItem convertItem = new MenuItem("Convert to PKS");
+        convertItem.setDisable(true);
         Menu fileMenu = new Menu("File");
-        fileMenu.getItems().add(exportItem);
+        fileMenu.getItems().addAll(exportItem, convertItem);
 
         MenuItem aboutItem = new MenuItem("About");
         aboutItem.setOnAction(e -> showAboutDialog(stage));
@@ -97,12 +104,14 @@ public class App extends Application {
 
         tableView.getColumns().addAll(aliasCol, entryTypeCol, validFromCol, validUntilCol, sigAlgCol, serialCol);
 
-                // Enable export only when a keystore is loaded and exactly one row is selected
-                Runnable updateExportEnabled = () -> {
+                // Enable/disable menu items based on state
+                Runnable updateMenuEnabled = () -> {
                     boolean oneSelected = tableView.getSelectionModel().getSelectedItems().size() == 1;
                     exportItem.setDisable(!(keystoreLoaded && oneSelected));
+                    boolean canConvert = keystoreLoaded && "JKS".equals(currentKeystoreType);
+                    convertItem.setDisable(!canConvert);
                 };
-                tableView.getSelectionModel().selectedItemProperty().addListener((obs, oldSel, newSel) -> updateExportEnabled.run());
+                tableView.getSelectionModel().selectedItemProperty().addListener((obs, oldSel, newSel) -> updateMenuEnabled.run());
 
                 // Export action: export selected entry's certificate to PEM or DER
                 exportItem.setOnAction(e -> {
@@ -140,6 +149,61 @@ public class App extends Application {
                     }
                 });
 
+                // Convert to PKS action
+                convertItem.setOnAction(e -> {
+                    if (!keystoreLoaded || currentKeyStore == null || !"JKS".equals(currentKeystoreType)) {
+                        return;
+                    }
+                    try {
+                        // Prepare destination file
+                        FileChooser chooser = new FileChooser();
+                        chooser.setTitle("Save PKS Keystore");
+                        chooser.getExtensionFilters().addAll(
+                                new FileChooser.ExtensionFilter("PKS (*.pks)", "*.pks"),
+                                new FileChooser.ExtensionFilter("PKCS12 (*.p12)", "*.p12")
+                        );
+                        chooser.setInitialFileName("keystore.pks");
+                        File out = chooser.showSaveDialog(stage);
+                        if (out == null) return;
+
+                        // Create PKCS12 keystore
+                        KeyStore p12 = KeyStore.getInstance("PKCS12");
+                        p12.load(null, null);
+
+                        char[] ksPwd = (currentKeystorePassword != null) ? currentKeystorePassword : new char[0];
+                        char[] keyPwd = (currentKeyPassword != null && currentKeyPassword.length > 0) ? currentKeyPassword : ksPwd;
+
+                        for (Enumeration<String> ealiases = currentKeyStore.aliases(); ealiases.hasMoreElements(); ) {
+                            String alias = ealiases.nextElement();
+                            if (currentKeyStore.isKeyEntry(alias)) {
+                                Key key = currentKeyStore.getKey(alias, keyPwd);
+                                Certificate[] chain = currentKeyStore.getCertificateChain(alias);
+                                if (chain == null) {
+                                    Certificate c = currentKeyStore.getCertificate(alias);
+                                    if (c != null) {
+                                        chain = new Certificate[]{c};
+                                    }
+                                }
+                                if (chain == null || key == null) {
+                                    throw new Exception("Missing key or certificate chain for alias: " + alias);
+                                }
+                                p12.setKeyEntry(alias, key, keyPwd, chain);
+                            } else if (currentKeyStore.isCertificateEntry(alias)) {
+                                Certificate cert = currentKeyStore.getCertificate(alias);
+                                if (cert != null) {
+                                    p12.setCertificateEntry(alias, cert);
+                                }
+                            }
+                        }
+
+                        try (FileOutputStream fos = new FileOutputStream(out)) {
+                            p12.store(fos, ksPwd);
+                        }
+                    } catch (Exception ex) {
+                        showError(stage, "Failed to convert to PKS: " + ex.getMessage());
+                    }
+                });
+
         // DnD handlers
         dropZone.setOnDragOver(event -> {
             Dragboard db = event.getDragboard();
@@ -167,6 +231,13 @@ public class App extends Application {
                     } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem")  || lower.endsWith(".der")) {
                         loadCertificatesIntoTable(ksFile, stage);
                     }
+                    // refresh menu enables after load
+                    // ensure UI reflects current state (selection-independent items like Convert)
+                    // We are inside start() where updateMenuEnabled is in scope
+                    try {
+                        // Run later to ensure state flags are updated
+                        updateMenuEnabled.run();
+                    } catch (Exception ignore) {}
                     success = true;
                 } else {
                     showError(stage, "Please drop a .jks, .pks, .cert, .crt, .der or .pem file.");
@@ -207,6 +278,10 @@ public class App extends Application {
             populateTableFromKeyStore(ks);
             this.currentKeyStore = ks;
             this.keystoreLoaded = true;
+            this.currentKeystoreType = type;
+            // store copies of passwords for later operations (e.g., convert)
+            this.currentKeystorePassword = pw.keystorePassword == null ? null : pw.keystorePassword.clone();
+            this.currentKeyPassword = pw.keyPassword == null ? null : pw.keyPassword.clone();
         } catch (Exception ex) {
             showError(owner, "Failed to load keystore: " + ex.getMessage());
         } finally {
@@ -243,6 +318,9 @@ public class App extends Application {
         tableData.clear();
         this.currentKeyStore = null;
         this.keystoreLoaded = false;
+        this.currentKeystoreType = null;
+        this.currentKeystorePassword = null;
+        this.currentKeyPassword = null;
         try (FileInputStream fis = new FileInputStream(certFile)) {
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
             Collection<? extends Certificate> certs = cf.generateCertificates(fis);
