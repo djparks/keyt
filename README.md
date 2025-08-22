@@ -95,6 +95,49 @@ mvn clean javafx:run
 - Main class: `org.openjfx.App`
 - Module name: `org.openjfx`
 
+## Running with command file from any folder
+
+To make the `.sh` file executable from any folder on your Mac, you need to place it in a directory included in your system's `PATH` environment variable and ensure it has the correct permissions. Here's how to do it:
+
+1. **Choose a Directory**: A common location for user-added scripts is `~/bin`, as it’s typically included in the `PATH` and writable by the user.
+
+2. **Move the Script**:
+    - Copy or move your `.sh` file (e.g., `keyt.sh`) to `/usr/local/bin`. Open a terminal and run:
+      ```bash
+      mv keyt.sh /usr/local/bin/
+      ```
+      You’ll need to enter your password because `/usr/local/bin` requires elevated permissions.
+
+3. **Set Execute Permissions**:
+    - Ensure the script is executable by running:
+      ```bash
+      chmod +x ~/bin/keyt.sh
+      ```
+
+4. **Verify the PATH**:
+    - Check if `~/bin` is in your `PATH` by running:
+      ```bash
+      echo $PATH
+      ```
+      If `~/bin` is listed, you’re set. If not, add it by editing your shell configuration file (e.g., `~/.zshrc` for zsh, which is the default shell on macOS):
+      ```bash
+      echo 'export PATH="~/bin:$PATH"' >> ~/.zshrc
+      source ~/.zshrc
+      ```
+
+5. **Test the Script**:
+    - From any directory, run:
+      ```bash
+      keyt.sh [parameters]
+      ```
+      The script should execute `java -jar keyt.jar` with any parameters you pass, as long as `keyt.jar` is in the directory where you run the command or you specify its full path in the script.
+
+**Notes**:
+- Ensure `keyt.jar` is either in the current working directory when you run the script or update the script to include the full path to `keyt.jar` (e.g., `java -jar /path/to/keyt.jar "$@"`).
+- If you encounter permission issues, double-check ownership with `ls -l ~/bin/keyt.sh` and adjust using `sudo chown $USER ~/bin/keyt.sh` if needed.
+
+Now you can run `keyt.sh` from any folder, and it will pass any arguments to `java -jar keyt.jar` while ensuring Java 17 or greater is used.
+
 ## License
 
 This project is provided as-is for demonstration purposes.
