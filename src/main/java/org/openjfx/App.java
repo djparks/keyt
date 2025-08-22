@@ -100,7 +100,7 @@ public class App extends Application {
         MenuBar menuBar = new MenuBar(fileMenu, helpMenu);
 
         // Drag-and-drop zone just below the menu
-        Label dropText = new Label("Drop a JKS, PKS, CERT/CRT/PEM/DER file here");
+        Label dropText = new Label("Drop a JKS, PKS/P12, CERT/CRT/PEM/DER file here");
         StackPane dropZone = new StackPane(dropText);
         dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: #f5f5f5;");
         dropZone.setMinHeight(50);
@@ -245,13 +245,13 @@ public class App extends Application {
                 File ksFile = db.getFiles().stream()
                         .filter(f -> {
                             String name = f.getName().toLowerCase(Locale.ROOT);
-                            return name.endsWith(".jks") || name.endsWith(".pks") || name.endsWith(".cert") || name.endsWith(".crt") || name.endsWith(".pem")  || name.endsWith(".der");
+                            return name.endsWith(".jks") || name.endsWith(".pks") || name.endsWith(".p12") || name.endsWith(".cert") || name.endsWith(".crt") || name.endsWith(".pem")  || name.endsWith(".der");
                         })
                         .findFirst().orElse(null);
                 if (ksFile != null) {
                     dropText.setText("Loading: " + ksFile.getName());
                     String lower = ksFile.getName().toLowerCase(Locale.ROOT);
-                    if (lower.endsWith(".jks") || lower.endsWith(".pks")) {
+                    if (lower.endsWith(".jks") || lower.endsWith(".pks") || lower.endsWith(".p12")) {
                         loadKeystoreIntoTable(ksFile, stage);
                     } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem")  || lower.endsWith(".der")) {
                         loadCertificatesIntoTable(ksFile, stage);
@@ -265,7 +265,7 @@ public class App extends Application {
                     } catch (Exception ignore) {}
                     success = true;
                 } else {
-                    showError(stage, "Please drop a .jks, .pks, .cert, .crt, .der or .pem file.");
+                    showError(stage, "Please drop a .jks, .pks, .p12, .cert, .crt, .der or .pem file.");
                 }
             }
             event.setDropCompleted(success);
@@ -284,6 +284,26 @@ public class App extends Application {
         var scene = new Scene(root, 640, 480);
         stage.setScene(scene);
         stage.show();
+
+        // If a file path was provided as a command-line argument, try to load it
+        try {
+            java.util.List<String> args = getParameters().getRaw();
+            if (args != null && !args.isEmpty()) {
+                File cliFile = new File(args.get(0));
+                if (cliFile.exists() && cliFile.isFile()) {
+                    String lower = cliFile.getName().toLowerCase(Locale.ROOT);
+                    if (lower.endsWith(".jks") || lower.endsWith(".pks") || lower.endsWith(".p12")) {
+                        loadKeystoreIntoTable(cliFile, stage);
+                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem") || lower.endsWith(".der")) {
+                        loadCertificatesIntoTable(cliFile, stage);
+                    } else {
+                        showError(stage, "Unsupported file type: " + cliFile.getName());
+                    }
+                } else {
+                    showError(stage, "File not found: " + cliFile.getPath());
+                }
+            }
+        } catch (Throwable ignored) { }
     }
 
     private void loadKeystoreIntoTable(File ksFile, Stage owner) {
@@ -295,7 +315,7 @@ public class App extends Application {
         }
         Passwords pw = pwOpt.get();
         String name = ksFile.getName().toLowerCase(Locale.ROOT);
-        String type = name.endsWith(".pks") ? "PKCS12" : "JKS";
+        String type = (name.endsWith(".pks") || name.endsWith(".p12")) ? "PKCS12" : "JKS";
         try (FileInputStream fis = new FileInputStream(ksFile)) {
             KeyStore ks = KeyStore.getInstance(type);
             char[] ksPwd = (pw.keystorePassword != null && pw.keystorePassword.length > 0) ? pw.keystorePassword : null;

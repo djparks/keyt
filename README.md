@@ -37,6 +37,30 @@ java -jar target/keyt.jar
 
 No extra module parameters are required as the JAR includes the JavaFX dependencies (for your platform) on the classpath.
 
+### Open a file on startup
+
+You can pass a keystore or certificate file path as the first argument. Supported extensions:
+- Keystore: .jks, .pks, .p12 (PKCS12)
+- Certificates: .cert, .crt, .der, .pem (X.509)
+
+Examples:
+```
+# Open a JKS keystore (will prompt for keystore/key passwords)
+java -jar target/keyt.jar /path/to/keystore.jks
+
+# Open a PKCS12 keystore (.p12/.pks)
+java -jar target/keyt.jar /path/to/keystore.p12
+
+# Open a certificate (PEM/DER)
+java -jar target/keyt.jar /path/to/cert.pem
+```
+
+Notes:
+- If the file path contains spaces, wrap it in quotes, e.g.:
+  `java -jar target/keyt.jar "/path/with spaces/keystore.p12"`
+- For keystores, the app will prompt for the keystore password and (optionally) a key password.
+- For certificates, contents are displayed without a password.
+
 ## Notes on platforms
 
 JavaFX provides platform-specific artifacts that include native libraries. The Maven configuration auto-selects the classifier for common platforms via Maven profiles and defaults to Apple Silicon (mac-aarch64):
