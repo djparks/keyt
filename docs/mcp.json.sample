@@ -1,0 +1,103 @@
+{
+  "_comment": "Sample MCP settings for KeyT project. Copy relevant sections into your Claude Desktop settings.json or VS Code settings.json. Replace <ABSOLUTE_PATH_TO_PROJECT> with your local path.",
+
+  "claudeDesktop.mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "--root", "<ABSOLUTE_PATH_TO_PROJECT>"],
+      "disabled": false
+    },
+
+    "shell": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-shell"],
+      "env": {
+        "MCP_SHELL_ALLOWED_COMMANDS": "mvn,java,keytool,openssl,ls,cat,grep,find,echo,head,tail",
+        "JAVA_HOME": "/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home"
+      },
+      "disabled": false
+    },
+
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"],
+      "disabled": false
+    },
+
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git"],
+      "disabled": false
+    },
+
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "<YOUR_BRAVE_API_KEY>"
+      },
+      "disabled": true
+    }
+  },
+
+  "_howToUseClaudeDesktop": {
+    "settingsFile": "macOS: ~/Library/Application Support/Claude/settings.json; Windows: %APPDATA%/Claude/settings.json; Linux: ~/.config/Claude/settings.json",
+    "instructions": [
+      "1) Install Node.js >= 18 (for npx).",
+      "2) Ensure Java 17+ and Maven are installed and on PATH.",
+      "3) Open the settings file above and merge the 'claudeDesktop.mcpServers' entries into the 'mcpServers' object in your settings.json.",
+      "4) Replace <ABSOLUTE_PATH_TO_PROJECT> with your local repo path (e.g., /Users/you/projects/keyt).",
+      "5) If enabling web search, set BRAVE_API_KEY and flip disabled to false.",
+      "6) Restart Claude Desktop."
+    ]
+  },
+
+  "vsCode.mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "--root", "<ABSOLUTE_PATH_TO_PROJECT>"]
+    },
+    "shell": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-shell"],
+      "env": {
+        "MCP_SHELL_ALLOWED_COMMANDS": "mvn,java,keytool,openssl,ls,cat,grep,find,echo,head,tail"
+      }
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git"]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "<YOUR_BRAVE_API_KEY>"
+      },
+      "disabled": true
+    }
+  },
+
+  "_howToUseVSCode": {
+    "settingsPath": "Preferences: Open Settings (JSON) -> search for 'mcpServers' or 'claude.mcpServers' depending on your extension.",
+    "instructions": [
+      "1) Install Node.js >= 18.",
+      "2) Add the 'vsCode.mcpServers' entries into your VS Code settings JSON under the correct key for your MCP-enabled extension (e.g., 'claude.mcpServers').",
+      "3) Replace <ABSOLUTE_PATH_TO_PROJECT> with your local repo path.",
+      "4) Restart VS Code."
+    ]
+  },
+
+  "_notes": [
+    "- Filesystem server is scoped to the repo to prevent broad disk access.",
+    "- Shell server commands are restricted via MCP_SHELL_ALLOWED_COMMANDS; extend cautiously.",
+    "- On macOS with Apple Silicon, ensure JAVA_HOME points to a Java 17+ JDK.",
+    "- If 'npx' isn’t available or you prefer pinned versions, replace '@modelcontextprotocol/server-<name>' with a version like '@modelcontextprotocol/server-filesystem@0.2.x'.",
+    "- The 'git' server enables operations like reading branches, diffs, and commits directly from the assistant.",
+    "- The 'fetch' server is useful for downloading remote certificates/CRLs or docs while discussing changes."
+  ]
+}

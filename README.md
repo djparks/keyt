@@ -138,6 +138,77 @@ To make the `.sh` file executable from any folder on your Mac, you need to place
 
 Now you can run `keyt.sh` from any folder, and it will pass any arguments to `java -jar keyt.jar` while ensuring Java 17 or greater is used.
 
+## Optional: Model Context Protocol (MCP) setup
+
+You can let an AI assistant operate on this repository more safely and productively by enabling MCP servers. Recommended servers for this project:
+
+- Filesystem: read/write limited to this repo so the assistant can inspect/edit code.
+- Shell/Process: run a small allowlist of commands needed for this project: mvn, java, keytool, openssl, and basic utilities.
+- HTTP Fetch: download remote certs/CRLs or documentation.
+- Git: inspect diffs, branches, and commits within the repo.
+- Optional Web Search (Brave): research certificate OIDs, algorithms, platform nuances.
+
+A ready-to-copy sample lives at docs/mcp.json.sample. Below are quick steps for common tools.
+
+### Claude Desktop
+
+1) Prereqs:
+   - Node.js 18+ (for npx)
+   - Java 17+ and Maven on your PATH
+2) Open your Claude settings.json:
+   - macOS: ~/Library/Application Support/Claude/settings.json
+   - Windows: %APPDATA%/Claude/settings.json
+   - Linux: ~/.config/Claude/settings.json
+3) Add/merge an mcpServers section similar to the sample and set the project path:
+
+```
+"mcpServers": {
+  "filesystem": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "--root", "/ABSOLUTE/PATH/TO/keyt"]
+  },
+  "shell": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-shell"],
+    "env": {
+      "MCP_SHELL_ALLOWED_COMMANDS": "mvn,java,keytool,openssl,ls,cat,grep,find,echo,head,tail"
+    }
+  },
+  "fetch": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-fetch"] },
+  "git": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-git"] },
+  "brave-search": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "env": { "BRAVE_API_KEY": "<YOUR_BRAVE_API_KEY>" },
+    "disabled": true
+  }
+}
+```
+
+4) Restart Claude Desktop. Toggle the optional web search by setting disabled: false and adding your API key.
+
+Safety: keep the filesystem --root set to this repo, and use a tight MCP_SHELL_ALLOWED_COMMANDS list.
+
+### VS Code (MCP-enabled extensions)
+
+Open Settings (JSON) and add a similar block under the key your extension expects (e.g., "claude.mcpServers"):
+
+```
+"claude.mcpServers": {
+  "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "--root", "/ABSOLUTE/PATH/TO/keyt"] },
+  "shell": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-shell"], "env": { "MCP_SHELL_ALLOWED_COMMANDS": "mvn,java,keytool,openssl,ls,cat,grep,find,echo,head,tail" } },
+  "fetch": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-fetch"] },
+  "git": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-git"] }
+}
+```
+
+### Notes
+- Pin server versions if you need reproducibility, e.g., @modelcontextprotocol/server-filesystem@0.2.x
+- On macOS/Apple Silicon, ensure JAVA_HOME points to a JDK 17+ when using the shell server.
+- Extend the shell allowlist only as needed.
+
+For a complete, copy/pasteable template, see docs/mcp.json.sample.
+
 ## License
 
 This project is provided as-is for demonstration purposes.
