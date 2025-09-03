@@ -105,7 +105,7 @@ public class App extends Application {
 
         // TableView setup
         TableView<TableRowData> tableView = new TableView<>(tableData);
-        tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        tableView.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
 
         TableColumn<TableRowData, String> aliasCol = new TableColumn<>("Alias Name");
         aliasCol.setCellValueFactory(cell -> cell.getValue().aliasProperty());
@@ -124,6 +124,14 @@ public class App extends Application {
 
         TableColumn<TableRowData, String> serialCol = new TableColumn<>("Serial Number");
         serialCol.setCellValueFactory(cell -> cell.getValue().serialNumberProperty());
+
+        // Set preferred widths so the table can overflow horizontally and show a scrollbar when needed
+        aliasCol.setPrefWidth(200);
+        entryTypeCol.setPrefWidth(140);
+        validFromCol.setPrefWidth(170);
+        validUntilCol.setPrefWidth(170);
+        sigAlgCol.setPrefWidth(240);
+        serialCol.setPrefWidth(240);
 
         tableView.getColumns().addAll(aliasCol, entryTypeCol, validFromCol, validUntilCol, sigAlgCol, serialCol);
 
