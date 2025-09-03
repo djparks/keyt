@@ -15,6 +15,9 @@ import javafx.scene.control.TableView;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.ProgressIndicator;
+import javafx.concurrent.Task;
+import javafx.application.Platform;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
@@ -54,6 +57,8 @@ import org.openjfx.service.ExportService;
  * JavaFX App
  */
 public class App extends Application {
+
+    private ProgressIndicator progressIndicator;
 
     private KeyStore currentKeyStore = null;
     private boolean keystoreLoaded = false;
@@ -149,8 +154,8 @@ public class App extends Application {
                     if (row == null || !keystoreLoaded || currentKeyStore == null) {
                         return;
                     }
+                    String alias = row.aliasProperty().get();
                     try {
-                        String alias = row.aliasProperty().get();
                         Certificate cert = currentKeyStore.getCertificate(alias);
                         if (cert == null) {
                             showError(stage, "No certificate found for alias: " + alias);
@@ -165,12 +170,22 @@ public class App extends Application {
                         chooser.setInitialFileName(alias + ".pem");
                         File out = chooser.showSaveDialog(stage);
                         if (out == null) return;
-                        String name = out.getName().toLowerCase(Locale.ROOT);
-                        if (name.endsWith(".der")) {
-                            exportService.exportCertificateDer(cert, out.toPath());
-                        } else {
-                            exportService.exportCertificatePem(cert, out.toPath());
-                        }
+
+                        Task<Void> task = new Task<>() {
+                            @Override
+                            protected Void call() throws Exception {
+                                String name = out.getName().toLowerCase(Locale.ROOT);
+                                if (name.endsWith(".der")) {
+                                    exportService.exportCertificateDer(cert, out.toPath());
+                                } else {
+                                    exportService.exportCertificatePem(cert, out.toPath());
+                                }
+                                return null;
+                            }
+                        };
+                        task.setOnFailed(ev -> Platform.runLater(() -> showError(stage, "Failed to export: " + task.getException().getMessage())));
+                        showProgressWhile(task);
+                        new Thread(task, "export-cert").start();
                     } catch (Exception ex) {
                         showError(stage, "Failed to export: " + ex.getMessage());
                     }
@@ -195,10 +210,20 @@ public class App extends Application {
 
                         char[] ksPwd = (currentKeystorePassword != null) ? currentKeystorePassword : new char[0];
                         char[] keyPwd = (currentKeyPassword != null && currentKeyPassword.length > 0) ? currentKeyPassword : ksPwd;
-                        KeyStore p12 = keystoreService.convertToPkcs12(currentKeyStore, ksPwd, keyPwd);
-                        try (FileOutputStream fos = new FileOutputStream(out)) {
-                            p12.store(fos, ksPwd);
-                        }
+
+                        Task<Void> task = new Task<>() {
+                            @Override
+                            protected Void call() throws Exception {
+                                KeyStore p12 = keystoreService.convertToPkcs12(currentKeyStore, ksPwd, keyPwd);
+                                try (FileOutputStream fos = new FileOutputStream(out)) {
+                                    p12.store(fos, ksPwd);
+                                }
+                                return null;
+                            }
+                        };
+                        task.setOnFailed(ev -> Platform.runLater(() -> showError(stage, "Failed to convert to PKS: " + task.getException().getMessage())));
+                        showProgressWhile(task);
+                        new Thread(task, "convert-keystore").start();
                     } catch (Exception ex) {
                         showError(stage, "Failed to convert to PKS: " + ex.getMessage());
                     }
@@ -247,14 +272,20 @@ public class App extends Application {
             event.consume();
         });
 
-        // Layout: Menu at top, then drop zone, then table
+        // Layout: Menu at top, then drop zone, then table with progress indicator overlay
         VBox content = new VBox(10);
         content.getChildren().addAll(dropZone, tableView);
         VBox.setVgrow(tableView, Priority.ALWAYS);
 
+        progressIndicator = new ProgressIndicator();
+        progressIndicator.setMaxSize(90, 90);
+        progressIndicator.setVisible(false);
+
+        StackPane centerPane = new StackPane(content, progressIndicator);
+
         BorderPane root = new BorderPane();
         root.setTop(menuBar);
-        root.setCenter(content);
+        root.setCenter(centerPane);
 
         var scene = new Scene(root, 640, 480);
         stage.setScene(scene);
@@ -286,6 +317,7 @@ public class App extends Application {
     private final ExportService exportService = new ExportService();
 
     private void loadKeystoreIntoTable(File ksFile, Stage owner) {
+        // Run background task for IO to keep UI responsive
         tableData.clear();
         // Ask for keystore and key password immediately when a file is dropped
         Optional<Passwords> pwOpt = promptForKeystoreAndKeyPasswords(owner);
@@ -293,27 +325,40 @@ public class App extends Application {
             return; // user cancelled
         }
         Passwords pw = pwOpt.get();
-        try {
-            KeyStore ks = keystoreService.load(ksFile, pw.keystorePassword);
-            java.util.List<CertificateInfo> infos = keystoreService.listEntries(ks);
-            // populate table
-            for (CertificateInfo ci : infos) {
-                tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                KeyStore ks = keystoreService.load(ksFile, pw.keystorePassword);
+                java.util.List<CertificateInfo> infos = keystoreService.listEntries(ks);
+                Platform.runLater(() -> {
+                    tableData.clear();
+                    for (CertificateInfo ci : infos) {
+                        tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
+                    }
+                    currentKeyStore = ks;
+                    keystoreLoaded = true;
+                    String name = ksFile.getName().toLowerCase(Locale.ROOT);
+                    currentKeystoreType = (name.endsWith(".pks") || name.endsWith(".p12")) ? "PKCS12" : "JKS";
+                    currentKeystorePassword = pw.keystorePassword == null ? null : pw.keystorePassword.clone();
+                    currentKeyPassword = pw.keyPassword == null ? null : pw.keyPassword.clone();
+                });
+                return null;
             }
-            this.currentKeyStore = ks;
-            this.keystoreLoaded = true;
-            // Determine type from file name for UI state
-            String name = ksFile.getName().toLowerCase(Locale.ROOT);
-            this.currentKeystoreType = (name.endsWith(".pks") || name.endsWith(".p12")) ? "PKCS12" : "JKS";
-            // store copies of passwords for later operations (e.g., convert)
-            this.currentKeystorePassword = pw.keystorePassword == null ? null : pw.keystorePassword.clone();
-            this.currentKeyPassword = pw.keyPassword == null ? null : pw.keyPassword.clone();
-        } catch (Exception ex) {
-            showError(owner, "Failed to load keystore: " + ex.getMessage());
-        } finally {
-            if (pw.keystorePassword != null) java.util.Arrays.fill(pw.keystorePassword, '\0');
-            if (pw.keyPassword != null) java.util.Arrays.fill(pw.keyPassword, '\0');
-        }
+        };
+        task.setOnFailed(ev -> Platform.runLater(() -> showError(owner, "Failed to load keystore: " + task.getException().getMessage())));
+        task.setOnSucceeded(ev -> {});
+        showProgressWhile(task);
+        new Thread(task, "load-keystore").start();
+        // clear entered passwords promptly
+        if (pw.keystorePassword != null) java.util.Arrays.fill(pw.keystorePassword, '\0');
+        if (pw.keyPassword != null) java.util.Arrays.fill(pw.keyPassword, '\0');
+    }
+
+    private void showProgressWhile(Task<?> task) {
+        Platform.runLater(() -> progressIndicator.setVisible(true));
+        task.setOnSucceeded(e -> Platform.runLater(() -> progressIndicator.setVisible(false)));
+        task.setOnFailed(e -> Platform.runLater(() -> progressIndicator.setVisible(false)));
+        task.setOnCancelled(e -> Platform.runLater(() -> progressIndicator.setVisible(false)));
     }
 
     private void populateTableFromKeyStore(KeyStore ks) throws Exception {
@@ -346,14 +391,21 @@ public class App extends Application {
         this.currentKeystoreType = null;
         this.currentKeystorePassword = null;
         this.currentKeyPassword = null;
-        try {
-            java.util.List<CertificateInfo> certs = certificateService.loadCertificates(certFile);
-            for (CertificateInfo ci : certs) {
+        Task<java.util.List<CertificateInfo>> task = new Task<>() {
+            @Override
+            protected java.util.List<CertificateInfo> call() throws Exception {
+                return certificateService.loadCertificates(certFile);
+            }
+        };
+        task.setOnSucceeded(e -> Platform.runLater(() -> {
+            tableData.clear();
+            for (CertificateInfo ci : task.getValue()) {
                 tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
             }
-        } catch (Exception ex) {
-            showError(owner, "Failed to load certificate: " + ex.getMessage());
-        }
+        }));
+        task.setOnFailed(e -> Platform.runLater(() -> showError(owner, "Failed to load certificate: " + task.getException().getMessage())));
+        showProgressWhile(task);
+        new Thread(task, "load-certificates").start();
     }
 
     private void populateTableFromCertificates(Collection<? extends Certificate> certs, String fileName) {
