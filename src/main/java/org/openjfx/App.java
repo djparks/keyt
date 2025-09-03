@@ -45,6 +45,9 @@ import java.util.Enumeration;
 import java.util.Locale;
 import java.util.Optional;
 
+import org.openjfx.model.CertificateInfo;
+import org.openjfx.service.KeystoreService;
+
 /**
  * JavaFX App
  */
@@ -191,36 +194,9 @@ public class App extends Application {
                         File out = chooser.showSaveDialog(stage);
                         if (out == null) return;
 
-                        // Create PKCS12 keystore
-                        KeyStore p12 = KeyStore.getInstance("PKCS12");
-                        p12.load(null, null);
-
                         char[] ksPwd = (currentKeystorePassword != null) ? currentKeystorePassword : new char[0];
                         char[] keyPwd = (currentKeyPassword != null && currentKeyPassword.length > 0) ? currentKeyPassword : ksPwd;
-
-                        for (Enumeration<String> ealiases = currentKeyStore.aliases(); ealiases.hasMoreElements(); ) {
-                            String alias = ealiases.nextElement();
-                            if (currentKeyStore.isKeyEntry(alias)) {
-                                Key key = currentKeyStore.getKey(alias, keyPwd);
-                                Certificate[] chain = currentKeyStore.getCertificateChain(alias);
-                                if (chain == null) {
-                                    Certificate c = currentKeyStore.getCertificate(alias);
-                                    if (c != null) {
-                                        chain = new Certificate[]{c};
-                                    }
-                                }
-                                if (chain == null || key == null) {
-                                    throw new Exception("Missing key or certificate chain for alias: " + alias);
-                                }
-                                p12.setKeyEntry(alias, key, keyPwd, chain);
-                            } else if (currentKeyStore.isCertificateEntry(alias)) {
-                                Certificate cert = currentKeyStore.getCertificate(alias);
-                                if (cert != null) {
-                                    p12.setCertificateEntry(alias, cert);
-                                }
-                            }
-                        }
-
+                        KeyStore p12 = keystoreService.convertToPkcs12(currentKeyStore, ksPwd, keyPwd);
                         try (FileOutputStream fos = new FileOutputStream(out)) {
                             p12.store(fos, ksPwd);
                         }
@@ -306,6 +282,8 @@ public class App extends Application {
         } catch (Throwable ignored) { }
     }
 
+    private final KeystoreService keystoreService = new KeystoreService();
+
     private void loadKeystoreIntoTable(File ksFile, Stage owner) {
         tableData.clear();
         // Ask for keystore and key password immediately when a file is dropped
@@ -314,23 +292,24 @@ public class App extends Application {
             return; // user cancelled
         }
         Passwords pw = pwOpt.get();
-        String name = ksFile.getName().toLowerCase(Locale.ROOT);
-        String type = (name.endsWith(".pks") || name.endsWith(".p12")) ? "PKCS12" : "JKS";
-        try (FileInputStream fis = new FileInputStream(ksFile)) {
-            KeyStore ks = KeyStore.getInstance(type);
-            char[] ksPwd = (pw.keystorePassword != null && pw.keystorePassword.length > 0) ? pw.keystorePassword : null;
-            ks.load(fis, ksPwd);
-            populateTableFromKeyStore(ks);
+        try {
+            KeyStore ks = keystoreService.load(ksFile, pw.keystorePassword);
+            java.util.List<CertificateInfo> infos = keystoreService.listEntries(ks);
+            // populate table
+            for (CertificateInfo ci : infos) {
+                tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
+            }
             this.currentKeyStore = ks;
             this.keystoreLoaded = true;
-            this.currentKeystoreType = type;
+            // Determine type from file name for UI state
+            String name = ksFile.getName().toLowerCase(Locale.ROOT);
+            this.currentKeystoreType = (name.endsWith(".pks") || name.endsWith(".p12")) ? "PKCS12" : "JKS";
             // store copies of passwords for later operations (e.g., convert)
             this.currentKeystorePassword = pw.keystorePassword == null ? null : pw.keystorePassword.clone();
             this.currentKeyPassword = pw.keyPassword == null ? null : pw.keyPassword.clone();
         } catch (Exception ex) {
             showError(owner, "Failed to load keystore: " + ex.getMessage());
         } finally {
-            // Clear password arrays for security
             if (pw.keystorePassword != null) java.util.Arrays.fill(pw.keystorePassword, '\0');
             if (pw.keyPassword != null) java.util.Arrays.fill(pw.keyPassword, '\0');
         }
@@ -366,10 +345,11 @@ public class App extends Application {
         this.currentKeystoreType = null;
         this.currentKeystorePassword = null;
         this.currentKeyPassword = null;
-        try (FileInputStream fis = new FileInputStream(certFile)) {
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            Collection<? extends Certificate> certs = cf.generateCertificates(fis);
-            populateTableFromCertificates(certs, certFile.getName());
+        try {
+            java.util.List<CertificateInfo> certs = keystoreService.loadCertificates(certFile);
+            for (CertificateInfo ci : certs) {
+                tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
+            }
         } catch (Exception ex) {
             showError(owner, "Failed to load certificate: " + ex.getMessage());
         }
