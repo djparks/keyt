@@ -1,64 +1,49 @@
 package org.openjfx;
 
 import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import javafx.scene.Scene;
-import javafx.scene.control.Alert;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.Label;
-import javafx.scene.control.Menu;
-import javafx.scene.control.MenuBar;
-import javafx.scene.control.MenuItem;
-import javafx.scene.control.TableColumn;
-import javafx.scene.control.TableView;
-import javafx.scene.control.TextInputDialog;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.PasswordField;
-import javafx.scene.control.ProgressIndicator;
 import javafx.concurrent.Task;
-import javafx.application.Platform;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
-import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.StackPane;
-import javafx.scene.layout.VBox;
-import javafx.scene.layout.GridPane;
-import javafx.stage.Stage;
+import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
+import javafx.stage.Stage;
+import org.openjfx.model.CertificateInfo;
+import org.openjfx.service.CertificateService;
+import org.openjfx.service.ExportService;
+import org.openjfx.service.KeystoreService;
+import org.openjfx.service.ServiceExceptions.CertificateLoadException;
+import org.openjfx.service.ServiceExceptions.ExportException;
+import org.openjfx.service.ServiceExceptions.KeystoreLoadException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.awt.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.util.Base64;
-
+import javax.imageio.ImageIO;
+import java.awt.Image;
+import java.awt.Taskbar;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.security.Key;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
-import java.security.cert.X509Certificate;
 import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
-import java.util.Collection;
-import java.util.Date;
-import java.util.Enumeration;
-import java.util.Locale;
-import java.util.Optional;
-
-import org.openjfx.model.CertificateInfo;
-import org.openjfx.service.KeystoreService;
-import org.openjfx.service.CertificateService;
-import org.openjfx.service.ExportService;
+import java.util.*;
+import java.util.function.BiConsumer;
 
 /**
  * JavaFX App
  */
 public class App extends Application {
 
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(App.class);
+    private static final Logger log = LoggerFactory.getLogger(App.class);
 
     private ProgressIndicator progressIndicator;
     private Label statusLabel;
@@ -85,10 +70,10 @@ public class App extends Application {
 
                 // macOS Dock/task bar icon via AWT Taskbar (if supported)
                 try {
-                    if (java.awt.Taskbar.isTaskbarSupported()) {
-                        java.awt.Taskbar taskbar = java.awt.Taskbar.getTaskbar();
+                    if (Taskbar.isTaskbarSupported()) {
+                        Taskbar taskbar = Taskbar.getTaskbar();
                         try (var is = iconUrl.openStream()) {
-                            java.awt.Image awtImage = javax.imageio.ImageIO.read(is);
+                            Image awtImage = ImageIO.read(is);
                             if (awtImage != null) {
                                 taskbar.setIconImage(awtImage);
                             }
@@ -144,12 +129,12 @@ public class App extends Application {
 
         // Context menu on rows for export
         tableView.setRowFactory(tv -> {
-            javafx.scene.control.TableRow<TableRowData> row = new javafx.scene.control.TableRow<>();
-            javafx.scene.control.MenuItem exportCtx = new javafx.scene.control.MenuItem("Export Certificate…");
+            TableRow<TableRowData> row = new TableRow<>();
+            MenuItem exportCtx = new MenuItem("Export Certificate…");
             exportCtx.setOnAction(e -> exportItem.fire());
-            javafx.scene.control.ContextMenu ctx = new javafx.scene.control.ContextMenu(exportCtx);
-            row.contextMenuProperty().bind(javafx.beans.binding.Bindings.when(row.emptyProperty())
-                    .then((javafx.scene.control.ContextMenu) null)
+            ContextMenu ctx = new ContextMenu(exportCtx);
+            row.contextMenuProperty().bind(Bindings.when(row.emptyProperty())
+                    .then((ContextMenu) null)
                     .otherwise(ctx));
             // Double-click to show details
             row.setOnMouseClicked(me -> {
@@ -318,7 +303,7 @@ public class App extends Application {
         stage.show();
 
         // Helper to update status text
-        java.util.function.BiConsumer<String,String> setStatus = (fileName, ksType) -> {
+        BiConsumer<String,String> setStatus = (fileName, ksType) -> {
             if (fileName == null && ksType == null) {
                 statusLabel.setText("Ready");
             } else if (ksType == null) {
@@ -330,7 +315,7 @@ public class App extends Application {
 
         // If a file path was provided as a command-line argument, try to load it
         try {
-            java.util.List<String> args = getParameters().getRaw();
+            List<String> args = getParameters().getRaw();
             if (args != null && !args.isEmpty()) {
                 File cliFile = new File(args.get(0));
                 if (cliFile.exists() && cliFile.isFile()) {
@@ -366,7 +351,7 @@ public class App extends Application {
             @Override
             protected Void call() throws Exception {
                 KeyStore ks = keystoreService.load(ksFile, pw.keystorePassword);
-                java.util.List<CertificateInfo> infos = keystoreService.listEntries(ks);
+                List<CertificateInfo> infos = keystoreService.listEntries(ks);
                 Platform.runLater(() -> {
                     tableData.clear();
                     for (CertificateInfo ci : infos) {
@@ -391,8 +376,8 @@ public class App extends Application {
         showProgressWhile(task);
         new Thread(task, "load-keystore").start();
         // clear entered passwords promptly
-        if (pw.keystorePassword != null) java.util.Arrays.fill(pw.keystorePassword, '\0');
-        if (pw.keyPassword != null) java.util.Arrays.fill(pw.keyPassword, '\0');
+        if (pw.keystorePassword != null) Arrays.fill(pw.keystorePassword, '\0');
+        if (pw.keyPassword != null) Arrays.fill(pw.keyPassword, '\0');
     }
 
     private void showProgressWhile(Task<?> task) {
@@ -432,9 +417,9 @@ public class App extends Application {
         this.currentKeystoreType = null;
         this.currentKeystorePassword = null;
         this.currentKeyPassword = null;
-        Task<java.util.List<CertificateInfo>> task = new Task<>() {
+        Task<List<CertificateInfo>> task = new Task<>() {
             @Override
-            protected java.util.List<CertificateInfo> call() throws Exception {
+            protected List<CertificateInfo> call() throws Exception {
                 return certificateService.loadCertificates(certFile);
             }
         };
@@ -508,10 +493,10 @@ public class App extends Application {
         String sha256 = "";
         if (x509 != null) {
             try {
-                java.util.Collection<java.util.List<?>> altNames = x509.getSubjectAlternativeNames();
+                Collection<List<?>> altNames = x509.getSubjectAlternativeNames();
                 if (altNames != null) {
-                    java.util.List<String> parts = new java.util.ArrayList<>();
-                    for (java.util.List<?> item : altNames) {
+                    List<String> parts = new ArrayList<>();
+                    for (List<?> item : altNames) {
                         if (item.size() >= 2) {
                             Object type = item.get(0);
                             Object value = item.get(1);
@@ -524,12 +509,12 @@ public class App extends Application {
             boolean[] ku = x509.getKeyUsage();
             if (ku != null) {
                 String[] names = new String[]{"digitalSignature","nonRepudiation","keyEncipherment","dataEncipherment","keyAgreement","keyCertSign","cRLSign","encipherOnly","decipherOnly"};
-                java.util.List<String> set = new java.util.ArrayList<>();
+                List<String> set = new ArrayList<>();
                 for (int i=0;i<ku.length && i<names.length;i++) if (ku[i]) set.add(names[i]);
                 keyUsage = String.join(", ", set);
             }
             try {
-                java.util.List<String> eku = x509.getExtendedKeyUsage();
+                List<String> eku = x509.getExtendedKeyUsage();
                 if (eku != null) {
                     extKeyUsage = String.join(", ", eku);
                 }
@@ -626,11 +611,11 @@ public class App extends Application {
         String userMsg = context;
         Throwable root = t;
         while (root != null && root.getCause() != null) root = root.getCause();
-        if (t instanceof org.openjfx.service.ServiceExceptions.KeystoreLoadException) {
+        if (t instanceof KeystoreLoadException) {
             userMsg = context + ": Unable to open keystore. Check the password and file type.";
-        } else if (t instanceof org.openjfx.service.ServiceExceptions.CertificateLoadException) {
+        } else if (t instanceof CertificateLoadException) {
             userMsg = context + ": Unable to parse certificate file. It may be unsupported or corrupted.";
-        } else if (t instanceof org.openjfx.service.ServiceExceptions.ExportException) {
+        } else if (t instanceof ExportException) {
             userMsg = context + ": Unable to write file. Verify destination and permissions.";
         } else if (root != null && root.getMessage() != null && root.getMessage().toLowerCase(java.util.Locale.ROOT).contains("password")) {
             userMsg = context + ": Incorrect password.";

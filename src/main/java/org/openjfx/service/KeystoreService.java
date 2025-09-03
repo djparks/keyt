@@ -1,6 +1,11 @@
 package org.openjfx.service;
 
 import org.openjfx.model.CertificateInfo;
+import org.openjfx.service.ServiceExceptions.KeystoreLoadException;
+import org.openjfx.service.keystore.KeystoreProviderStrategy;
+import org.openjfx.service.keystore.SunJksPkcs12Strategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,15 +19,15 @@ import java.util.*;
 
 public class KeystoreService {
 
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(KeystoreService.class);
+    private static final Logger log = LoggerFactory.getLogger(KeystoreService.class);
 
-    private final java.util.List<org.openjfx.service.keystore.KeystoreProviderStrategy> strategies = java.util.List.of(
-            new org.openjfx.service.keystore.SunJksPkcs12Strategy()
+    private final List<KeystoreProviderStrategy> strategies = List.of(
+            new SunJksPkcs12Strategy()
     );
 
-    public KeyStore load(File file, char[] ksPassword) throws org.openjfx.service.ServiceExceptions.KeystoreLoadException {
+    public KeyStore load(File file, char[] ksPassword) throws KeystoreLoadException {
         try {
-            for (org.openjfx.service.keystore.KeystoreProviderStrategy s : strategies) {
+            for (KeystoreProviderStrategy s : strategies) {
                 if (s.supports(file)) {
                     return s.load(file, ksPassword);
                 }
@@ -35,11 +40,11 @@ public class KeystoreService {
             }
         } catch (Exception e) {
             log.debug("Keystore load failed for {}", file, e);
-            throw new org.openjfx.service.ServiceExceptions.KeystoreLoadException("Unable to load keystore: " + file.getName(), e);
+            throw new KeystoreLoadException("Unable to load keystore: " + file.getName(), e);
         }
     }
 
-    public List<CertificateInfo> listEntries(KeyStore ks) throws org.openjfx.service.ServiceExceptions.KeystoreLoadException {
+    public List<CertificateInfo> listEntries(KeyStore ks) throws KeystoreLoadException {
         List<CertificateInfo> result = new ArrayList<>();
         SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
         try {
@@ -62,7 +67,7 @@ public class KeystoreService {
             return result;
         } catch (Exception e) {
             log.debug("List entries failed", e);
-            throw new org.openjfx.service.ServiceExceptions.KeystoreLoadException("Unable to list entries", e);
+            throw new KeystoreLoadException("Unable to list entries", e);
         }
     }
 
