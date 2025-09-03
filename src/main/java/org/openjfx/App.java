@@ -59,6 +59,7 @@ import org.openjfx.service.ExportService;
 public class App extends Application {
 
     private ProgressIndicator progressIndicator;
+    private Label statusLabel;
 
     private KeyStore currentKeyStore = null;
     private boolean keystoreLoaded = false;
@@ -110,7 +111,7 @@ public class App extends Application {
         MenuBar menuBar = new MenuBar(fileMenu, helpMenu);
 
         // Drag-and-drop zone just below the menu
-        Label dropText = new Label("Drop a JKS, PKS/P12, CERT/CRT/PEM/DER file here");
+        Label dropText = new Label("Drop a JKS or PKCS12 (.p12), or CERT/CRT/PEM/DER file here");
         StackPane dropZone = new StackPane(dropText);
         dropZone.setStyle("-fx-border-color: #888; -fx-border-width: 2; -fx-border-style: dashed; -fx-background-color: #f5f5f5;");
         dropZone.setMinHeight(50);
@@ -138,6 +139,25 @@ public class App extends Application {
         serialCol.setCellValueFactory(cell -> cell.getValue().serialNumberProperty());
 
         tableView.getColumns().addAll(aliasCol, entryTypeCol, validFromCol, validUntilCol, sigAlgCol, serialCol);
+
+        // Context menu on rows for export
+        tableView.setRowFactory(tv -> {
+            javafx.scene.control.TableRow<TableRowData> row = new javafx.scene.control.TableRow<>();
+            javafx.scene.control.MenuItem exportCtx = new javafx.scene.control.MenuItem("Export Certificate…");
+            exportCtx.setOnAction(e -> exportItem.fire());
+            javafx.scene.control.ContextMenu ctx = new javafx.scene.control.ContextMenu(exportCtx);
+            row.contextMenuProperty().bind(javafx.beans.binding.Bindings.when(row.emptyProperty())
+                    .then((javafx.scene.control.ContextMenu) null)
+                    .otherwise(ctx));
+            // Double-click to show details
+            row.setOnMouseClicked(me -> {
+                if (me.getClickCount() == 2 && !row.isEmpty()) {
+                    TableRowData data = row.getItem();
+                    showCertificateDetails(stage, data);
+                }
+            });
+            return row;
+        });
 
                 // Enable/disable menu items based on state
                 Runnable updateMenuEnabled = () -> {
@@ -199,12 +219,11 @@ public class App extends Application {
                     try {
                         // Prepare destination file
                         FileChooser chooser = new FileChooser();
-                        chooser.setTitle("Save PKS Keystore");
+                        chooser.setTitle("Save PKCS12 Keystore");
                         chooser.getExtensionFilters().addAll(
-                                new FileChooser.ExtensionFilter("PKS (*.pks)", "*.pks"),
                                 new FileChooser.ExtensionFilter("PKCS12 (*.p12)", "*.p12")
                         );
-                        chooser.setInitialFileName("keystore.pks");
+                        chooser.setInitialFileName("keystore.p12");
                         File out = chooser.showSaveDialog(stage);
                         if (out == null) return;
 
@@ -221,11 +240,11 @@ public class App extends Application {
                                 return null;
                             }
                         };
-                        task.setOnFailed(ev -> Platform.runLater(() -> showError(stage, "Failed to convert to PKS: " + task.getException().getMessage())));
+                        task.setOnFailed(ev -> Platform.runLater(() -> showError(stage, "Failed to convert to PKCS12: " + task.getException().getMessage())));
                         showProgressWhile(task);
                         new Thread(task, "convert-keystore").start();
                     } catch (Exception ex) {
-                        showError(stage, "Failed to convert to PKS: " + ex.getMessage());
+                        showError(stage, "Failed to convert to PKCS12: " + ex.getMessage());
                     }
                 });
 
@@ -253,7 +272,7 @@ public class App extends Application {
                     String lower = ksFile.getName().toLowerCase(Locale.ROOT);
                     if (lower.endsWith(".jks") || lower.endsWith(".pks") || lower.endsWith(".p12")) {
                         loadKeystoreIntoTable(ksFile, stage);
-                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem")  || lower.endsWith(".der")) {
+                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem")  || lower.endsWith(".der") || lower.endsWith(".p7b") || lower.endsWith(".p7c") || lower.endsWith(".spc")) {
                         loadCertificatesIntoTable(ksFile, stage);
                     }
                     // refresh menu enables after load
@@ -265,7 +284,7 @@ public class App extends Application {
                     } catch (Exception ignore) {}
                     success = true;
                 } else {
-                    showError(stage, "Please drop a .jks, .pks, .p12, .cert, .crt, .der or .pem file.");
+                    showError(stage, "Please drop a .jks, .p12, .cert, .crt, .der, .pem, .p7b, .p7c or .spc file.");
                 }
             }
             event.setDropCompleted(success);
@@ -283,13 +302,29 @@ public class App extends Application {
 
         StackPane centerPane = new StackPane(content, progressIndicator);
 
+        // Status bar at bottom
+        statusLabel = new Label("Ready");
+        statusLabel.setStyle("-fx-padding: 4 8 4 8; -fx-font-size: 11px; -fx-text-fill: #555;");
+
         BorderPane root = new BorderPane();
         root.setTop(menuBar);
         root.setCenter(centerPane);
+        root.setBottom(statusLabel);
 
         var scene = new Scene(root, 640, 480);
         stage.setScene(scene);
         stage.show();
+
+        // Helper to update status text
+        java.util.function.BiConsumer<String,String> setStatus = (fileName, ksType) -> {
+            if (fileName == null && ksType == null) {
+                statusLabel.setText("Ready");
+            } else if (ksType == null) {
+                statusLabel.setText("File: " + fileName);
+            } else {
+                statusLabel.setText("File: " + fileName + " • Type: " + ksType);
+            }
+        };
 
         // If a file path was provided as a command-line argument, try to load it
         try {
@@ -300,7 +335,7 @@ public class App extends Application {
                     String lower = cliFile.getName().toLowerCase(Locale.ROOT);
                     if (lower.endsWith(".jks") || lower.endsWith(".pks") || lower.endsWith(".p12")) {
                         loadKeystoreIntoTable(cliFile, stage);
-                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem") || lower.endsWith(".der")) {
+                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem") || lower.endsWith(".der") || lower.endsWith(".p7b") || lower.endsWith(".p7c") || lower.endsWith(".spc")) {
                         loadCertificatesIntoTable(cliFile, stage);
                     } else {
                         showError(stage, "Unsupported file type: " + cliFile.getName());
@@ -346,7 +381,11 @@ public class App extends Application {
             }
         };
         task.setOnFailed(ev -> Platform.runLater(() -> showError(owner, "Failed to load keystore: " + task.getException().getMessage())));
-        task.setOnSucceeded(ev -> {});
+        task.setOnSucceeded(ev -> Platform.runLater(() -> {
+            if (ksFile != null) {
+                statusLabel.setText("File: " + ksFile.getName() + " • Type: " + currentKeystoreType);
+            }
+        }));
         showProgressWhile(task);
         new Thread(task, "load-keystore").start();
         // clear entered passwords promptly
@@ -402,6 +441,9 @@ public class App extends Application {
             for (CertificateInfo ci : task.getValue()) {
                 tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
             }
+            if (certFile != null) {
+                statusLabel.setText("File: " + certFile.getName() + " • Type: Certificates");
+            }
         }));
         task.setOnFailed(e -> Platform.runLater(() -> showError(owner, "Failed to load certificate: " + task.getException().getMessage())));
         showProgressWhile(task);
@@ -432,6 +474,105 @@ public class App extends Application {
         if (owner != null) dialog.initOwner(owner);
         Optional<String> result = dialog.showAndWait();
         return result.map(String::toCharArray);
+    }
+
+    private void showCertificateDetails(Stage owner, TableRowData data) {
+        String alias = data.aliasProperty().get();
+        String entryType = data.entryTypeProperty().get();
+        String validFrom = data.validFromProperty().get();
+        String validUntil = data.validUntilProperty().get();
+        String sigAlg = data.signatureAlgorithmProperty().get();
+        String serial = data.serialNumberProperty().get();
+
+        X509Certificate x509 = null;
+        try {
+            if (keystoreLoaded && currentKeyStore != null) {
+                Certificate c = currentKeyStore.getCertificate(alias);
+                if (c instanceof X509Certificate xc) {
+                    x509 = xc;
+                }
+            }
+        } catch (Exception ignored) { }
+
+        String subject = x509 != null && x509.getSubjectX500Principal() != null ? x509.getSubjectX500Principal().getName() : "";
+        String issuer = x509 != null && x509.getIssuerX500Principal() != null ? x509.getIssuerX500Principal().getName() : "";
+
+        // Compute SANs, key usages, fingerprints when possible
+        String sans = "";
+        String keyUsage = "";
+        String extKeyUsage = "";
+        String basicConstraints = "";
+        String sha1 = "";
+        String sha256 = "";
+        if (x509 != null) {
+            try {
+                java.util.Collection<java.util.List<?>> altNames = x509.getSubjectAlternativeNames();
+                if (altNames != null) {
+                    java.util.List<String> parts = new java.util.ArrayList<>();
+                    for (java.util.List<?> item : altNames) {
+                        if (item.size() >= 2) {
+                            Object type = item.get(0);
+                            Object value = item.get(1);
+                            parts.add(String.valueOf(value));
+                        }
+                    }
+                    sans = String.join(", ", parts);
+                }
+            } catch (Exception ignored) { }
+            boolean[] ku = x509.getKeyUsage();
+            if (ku != null) {
+                String[] names = new String[]{"digitalSignature","nonRepudiation","keyEncipherment","dataEncipherment","keyAgreement","keyCertSign","cRLSign","encipherOnly","decipherOnly"};
+                java.util.List<String> set = new java.util.ArrayList<>();
+                for (int i=0;i<ku.length && i<names.length;i++) if (ku[i]) set.add(names[i]);
+                keyUsage = String.join(", ", set);
+            }
+            try {
+                java.util.List<String> eku = x509.getExtendedKeyUsage();
+                if (eku != null) {
+                    extKeyUsage = String.join(", ", eku);
+                }
+            } catch (Exception ignored) { }
+            int bc = x509.getBasicConstraints();
+            if (bc >= 0) basicConstraints = "CA: true, pathLen=" + bc; else basicConstraints = "CA: false";
+            try {
+                java.security.MessageDigest md1 = java.security.MessageDigest.getInstance("SHA-1");
+                java.security.MessageDigest md256 = java.security.MessageDigest.getInstance("SHA-256");
+                byte[] enc = x509.getEncoded();
+                sha1 = toHex(md1.digest(enc));
+                sha256 = toHex(md256.digest(enc));
+            } catch (Exception ignored) { }
+        }
+
+        Alert dlg = new Alert(Alert.AlertType.INFORMATION);
+        dlg.setTitle("Certificate Details");
+        dlg.setHeaderText(alias);
+        if (owner != null) dlg.initOwner(owner);
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(6);
+        int r = 0;
+        grid.add(new Label("Entry Type:"), 0, r); grid.add(new Label(entryType), 1, r++);
+        if (!subject.isEmpty()) { grid.add(new Label("Subject:"), 0, r); grid.add(new Label(subject), 1, r++); }
+        if (!issuer.isEmpty()) { grid.add(new Label("Issuer:"), 0, r); grid.add(new Label(issuer), 1, r++); }
+        grid.add(new Label("Valid From:"), 0, r); grid.add(new Label(validFrom), 1, r++);
+        grid.add(new Label("Valid Until:"), 0, r); grid.add(new Label(validUntil), 1, r++);
+        grid.add(new Label("Signature Alg:"), 0, r); grid.add(new Label(sigAlg), 1, r++);
+        grid.add(new Label("Serial #:"), 0, r); grid.add(new Label(serial), 1, r++);
+        if (!sans.isEmpty()) { grid.add(new Label("SANs:"), 0, r); grid.add(new Label(sans), 1, r++); }
+        if (!keyUsage.isEmpty()) { grid.add(new Label("Key Usage:"), 0, r); grid.add(new Label(keyUsage), 1, r++); }
+        if (!extKeyUsage.isEmpty()) { grid.add(new Label("Ext Key Usage:"), 0, r); grid.add(new Label(extKeyUsage), 1, r++); }
+        if (!basicConstraints.isEmpty()) { grid.add(new Label("Basic Constraints:"), 0, r); grid.add(new Label(basicConstraints), 1, r++); }
+        if (!sha1.isEmpty()) { grid.add(new Label("SHA-1:"), 0, r); grid.add(new Label(sha1), 1, r++); }
+        if (!sha256.isEmpty()) { grid.add(new Label("SHA-256:"), 0, r); grid.add(new Label(sha256), 1, r++); }
+        dlg.getDialogPane().setContent(grid);
+        dlg.getButtonTypes().setAll(ButtonType.CLOSE);
+        dlg.showAndWait();
+    }
+
+    private static String toHex(byte[] b) {
+        StringBuilder sb = new StringBuilder(b.length*2);
+        for (byte value : b) sb.append(String.format(java.util.Locale.ROOT, "%02X", value));
+        return sb.toString();
     }
 
     private Optional<Passwords> promptForKeystoreAndKeyPasswords(Stage owner) {

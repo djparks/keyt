@@ -14,11 +14,19 @@ import java.util.*;
 
 public class KeystoreService {
 
+    private final java.util.List<org.openjfx.service.keystore.KeystoreProviderStrategy> strategies = java.util.List.of(
+            new org.openjfx.service.keystore.SunJksPkcs12Strategy()
+    );
+
     public KeyStore load(File file, char[] ksPassword) throws Exception {
-        String name = file.getName().toLowerCase(Locale.ROOT);
-        String type = (name.endsWith(".pks") || name.endsWith(".p12")) ? "PKCS12" : "JKS";
+        for (org.openjfx.service.keystore.KeystoreProviderStrategy s : strategies) {
+            if (s.supports(file)) {
+                return s.load(file, ksPassword);
+            }
+        }
+        // Fallback to default JKS
         try (FileInputStream fis = new FileInputStream(file)) {
-            KeyStore ks = KeyStore.getInstance(type);
+            KeyStore ks = KeyStore.getInstance("JKS");
             ks.load(fis, (ksPassword != null && ksPassword.length > 0) ? ksPassword : null);
             return ks;
         }

@@ -16,11 +16,13 @@ import java.util.Locale;
 public class CertificateService {
 
     /**
-     * Load one or more X.509 certificates from a file (PEM/DER/bundle) and map them to CertificateInfo.
+     * Load one or more X.509 certificates from a file (PEM/DER/PKCS7 bundle) and map them to CertificateInfo.
      */
     public List<CertificateInfo> loadCertificates(File file) throws Exception {
+        String lower = file.getName().toLowerCase(java.util.Locale.ROOT);
         try (FileInputStream fis = new FileInputStream(file)) {
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            // CertificateFactory.generateCertificates handles PEM bundles and PKCS7 (DER or PEM) automatically
             Collection<? extends Certificate> certs = cf.generateCertificates(fis);
             return mapCertificates(certs, file.getName());
         }
