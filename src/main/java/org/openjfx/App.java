@@ -47,6 +47,8 @@ import java.util.Optional;
 
 import org.openjfx.model.CertificateInfo;
 import org.openjfx.service.KeystoreService;
+import org.openjfx.service.CertificateService;
+import org.openjfx.service.ExportService;
 
 /**
  * JavaFX App
@@ -165,12 +167,9 @@ public class App extends Application {
                         if (out == null) return;
                         String name = out.getName().toLowerCase(Locale.ROOT);
                         if (name.endsWith(".der")) {
-                            Files.write(out.toPath(), cert.getEncoded());
+                            exportService.exportCertificateDer(cert, out.toPath());
                         } else {
-                            String pem = "-----BEGIN CERTIFICATE-----\n" +
-                                    Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII)).encodeToString(cert.getEncoded()) +
-                                    "\n-----END CERTIFICATE-----\n";
-                            Files.writeString(out.toPath(), pem, StandardCharsets.US_ASCII);
+                            exportService.exportCertificatePem(cert, out.toPath());
                         }
                     } catch (Exception ex) {
                         showError(stage, "Failed to export: " + ex.getMessage());
@@ -283,6 +282,8 @@ public class App extends Application {
     }
 
     private final KeystoreService keystoreService = new KeystoreService();
+    private final CertificateService certificateService = new CertificateService();
+    private final ExportService exportService = new ExportService();
 
     private void loadKeystoreIntoTable(File ksFile, Stage owner) {
         tableData.clear();
@@ -346,7 +347,7 @@ public class App extends Application {
         this.currentKeystorePassword = null;
         this.currentKeyPassword = null;
         try {
-            java.util.List<CertificateInfo> certs = keystoreService.loadCertificates(certFile);
+            java.util.List<CertificateInfo> certs = certificateService.loadCertificates(certFile);
             for (CertificateInfo ci : certs) {
                 tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
             }
