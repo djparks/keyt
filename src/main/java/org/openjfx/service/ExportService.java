@@ -8,15 +8,27 @@ import java.util.Base64;
 
 public class ExportService {
 
-    public void exportCertificatePem(Certificate cert, Path output) throws Exception {
-        String pem = "-----BEGIN CERTIFICATE-----\n" +
-                Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII)).encodeToString(cert.getEncoded()) +
-                "\n-----END CERTIFICATE-----\n";
-        Files.writeString(output, pem, StandardCharsets.US_ASCII);
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExportService.class);
+
+    public void exportCertificatePem(Certificate cert, Path output) throws org.openjfx.service.ServiceExceptions.ExportException {
+        try {
+            String pem = "-----BEGIN CERTIFICATE-----\n" +
+                    Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII)).encodeToString(cert.getEncoded()) +
+                    "\n-----END CERTIFICATE-----\n";
+            Files.writeString(output, pem, StandardCharsets.US_ASCII);
+        } catch (Exception e) {
+            log.debug("Export PEM failed to {}", output, e);
+            throw new org.openjfx.service.ServiceExceptions.ExportException("Failed to export certificate to PEM", e);
+        }
     }
 
-    public void exportCertificateDer(Certificate cert, Path output) throws Exception {
-        Files.write(output, cert.getEncoded());
+    public void exportCertificateDer(Certificate cert, Path output) throws org.openjfx.service.ServiceExceptions.ExportException {
+        try {
+            Files.write(output, cert.getEncoded());
+        } catch (Exception e) {
+            log.debug("Export DER failed to {}", output, e);
+            throw new org.openjfx.service.ServiceExceptions.ExportException("Failed to export certificate to DER", e);
+        }
     }
 
     /**

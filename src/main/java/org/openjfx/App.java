@@ -58,6 +58,8 @@ import org.openjfx.service.ExportService;
  */
 public class App extends Application {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(App.class);
+
     private ProgressIndicator progressIndicator;
     private Label statusLabel;
 
@@ -203,7 +205,7 @@ public class App extends Application {
                                 return null;
                             }
                         };
-                        task.setOnFailed(ev -> Platform.runLater(() -> showError(stage, "Failed to export: " + task.getException().getMessage())));
+                        task.setOnFailed(ev -> Platform.runLater(() -> showException(stage, "Failed to export certificate", task.getException())));
                         showProgressWhile(task);
                         new Thread(task, "export-cert").start();
                     } catch (Exception ex) {
@@ -240,7 +242,7 @@ public class App extends Application {
                                 return null;
                             }
                         };
-                        task.setOnFailed(ev -> Platform.runLater(() -> showError(stage, "Failed to convert to PKCS12: " + task.getException().getMessage())));
+                        task.setOnFailed(ev -> Platform.runLater(() -> showException(stage, "Failed to convert to PKCS12", task.getException())));
                         showProgressWhile(task);
                         new Thread(task, "convert-keystore").start();
                     } catch (Exception ex) {
@@ -380,7 +382,7 @@ public class App extends Application {
                 return null;
             }
         };
-        task.setOnFailed(ev -> Platform.runLater(() -> showError(owner, "Failed to load keystore: " + task.getException().getMessage())));
+        task.setOnFailed(ev -> Platform.runLater(() -> showException(owner, "Failed to load keystore", task.getException())));
         task.setOnSucceeded(ev -> Platform.runLater(() -> {
             if (ksFile != null) {
                 statusLabel.setText("File: " + ksFile.getName() + " • Type: " + currentKeystoreType);
@@ -445,7 +447,7 @@ public class App extends Application {
                 statusLabel.setText("File: " + certFile.getName() + " • Type: Certificates");
             }
         }));
-        task.setOnFailed(e -> Platform.runLater(() -> showError(owner, "Failed to load certificate: " + task.getException().getMessage())));
+        task.setOnFailed(e -> Platform.runLater(() -> showException(owner, "Failed to load certificate", task.getException())));
         showProgressWhile(task);
         new Thread(task, "load-certificates").start();
     }
@@ -614,6 +616,30 @@ public class App extends Application {
     private static class Passwords {
         char[] keystorePassword;
         char[] keyPassword;
+    }
+
+    private void showException(Stage owner, String context, Throwable t) {
+        // Log full stack at debug for diagnostics; concise message to user
+        if (t != null) {
+            log.debug("{} failed", context, t);
+        }
+        String userMsg = context;
+        Throwable root = t;
+        while (root != null && root.getCause() != null) root = root.getCause();
+        if (t instanceof org.openjfx.service.ServiceExceptions.KeystoreLoadException) {
+            userMsg = context + ": Unable to open keystore. Check the password and file type.";
+        } else if (t instanceof org.openjfx.service.ServiceExceptions.CertificateLoadException) {
+            userMsg = context + ": Unable to parse certificate file. It may be unsupported or corrupted.";
+        } else if (t instanceof org.openjfx.service.ServiceExceptions.ExportException) {
+            userMsg = context + ": Unable to write file. Verify destination and permissions.";
+        } else if (root != null && root.getMessage() != null && root.getMessage().toLowerCase(java.util.Locale.ROOT).contains("password")) {
+            userMsg = context + ": Incorrect password.";
+        }
+        Alert alert = new Alert(Alert.AlertType.ERROR, userMsg, ButtonType.CLOSE);
+        alert.setTitle("Error");
+        alert.setHeaderText(null);
+        if (owner != null) alert.initOwner(owner);
+        alert.showAndWait();
     }
 
     private void showError(Stage owner, String msg) {

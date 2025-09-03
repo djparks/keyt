@@ -14,44 +14,56 @@ import java.util.*;
 
 public class KeystoreService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(KeystoreService.class);
+
     private final java.util.List<org.openjfx.service.keystore.KeystoreProviderStrategy> strategies = java.util.List.of(
             new org.openjfx.service.keystore.SunJksPkcs12Strategy()
     );
 
-    public KeyStore load(File file, char[] ksPassword) throws Exception {
-        for (org.openjfx.service.keystore.KeystoreProviderStrategy s : strategies) {
-            if (s.supports(file)) {
-                return s.load(file, ksPassword);
+    public KeyStore load(File file, char[] ksPassword) throws org.openjfx.service.ServiceExceptions.KeystoreLoadException {
+        try {
+            for (org.openjfx.service.keystore.KeystoreProviderStrategy s : strategies) {
+                if (s.supports(file)) {
+                    return s.load(file, ksPassword);
+                }
             }
-        }
-        // Fallback to default JKS
-        try (FileInputStream fis = new FileInputStream(file)) {
-            KeyStore ks = KeyStore.getInstance("JKS");
-            ks.load(fis, (ksPassword != null && ksPassword.length > 0) ? ksPassword : null);
-            return ks;
+            // Fallback to default JKS
+            try (FileInputStream fis = new FileInputStream(file)) {
+                KeyStore ks = KeyStore.getInstance("JKS");
+                ks.load(fis, (ksPassword != null && ksPassword.length > 0) ? ksPassword : null);
+                return ks;
+            }
+        } catch (Exception e) {
+            log.debug("Keystore load failed for {}", file, e);
+            throw new org.openjfx.service.ServiceExceptions.KeystoreLoadException("Unable to load keystore: " + file.getName(), e);
         }
     }
 
-    public List<CertificateInfo> listEntries(KeyStore ks) throws Exception {
+    public List<CertificateInfo> listEntries(KeyStore ks) throws org.openjfx.service.ServiceExceptions.KeystoreLoadException {
         List<CertificateInfo> result = new ArrayList<>();
         SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
-        for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
-            String alias = e.nextElement();
-            String entryType = ks.isKeyEntry(alias) ? "Private Key" : (ks.isCertificateEntry(alias) ? "Trusted Certificate" : "Unknown");
-            Certificate cert = ks.getCertificate(alias);
-            String validFrom = "";
-            String validUntil = "";
-            String sigAlg = "";
-            String serial = "";
-            if (cert instanceof X509Certificate x509) {
-                validFrom = fmt.format(x509.getNotBefore());
-                validUntil = fmt.format(x509.getNotAfter());
-                sigAlg = x509.getSigAlgName();
-                serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
+        try {
+            for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
+                String alias = e.nextElement();
+                String entryType = ks.isKeyEntry(alias) ? "Private Key" : (ks.isCertificateEntry(alias) ? "Trusted Certificate" : "Unknown");
+                Certificate cert = ks.getCertificate(alias);
+                String validFrom = "";
+                String validUntil = "";
+                String sigAlg = "";
+                String serial = "";
+                if (cert instanceof X509Certificate x509) {
+                    validFrom = fmt.format(x509.getNotBefore());
+                    validUntil = fmt.format(x509.getNotAfter());
+                    sigAlg = x509.getSigAlgName();
+                    serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
+                }
+                result.add(new CertificateInfo(alias, entryType, validFrom, validUntil, sigAlg, serial));
             }
-            result.add(new CertificateInfo(alias, entryType, validFrom, validUntil, sigAlg, serial));
+            return result;
+        } catch (Exception e) {
+            log.debug("List entries failed", e);
+            throw new org.openjfx.service.ServiceExceptions.KeystoreLoadException("Unable to list entries", e);
         }
-        return result;
     }
 
     public Optional<Certificate> getCertificate(KeyStore ks, String alias) throws Exception {
