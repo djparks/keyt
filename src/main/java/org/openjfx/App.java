@@ -88,7 +88,7 @@ public class App extends Application {
         // Menu bar with File -> Export, Convert to PKS and Help -> About
         MenuItem exportItem = new MenuItem("Export");
         exportItem.setDisable(true);
-        MenuItem convertItem = new MenuItem("Convert to PKS");
+        MenuItem convertItem = new MenuItem("Convert to PKCS12");
         convertItem.setDisable(true);
         Menu fileMenu = new Menu("File");
         fileMenu.getItems().addAll(exportItem, convertItem);

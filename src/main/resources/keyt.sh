@@ -16,4 +16,4 @@ if [ "$JAVA_VERSION" -lt 17 ]; then
 fi
 
 # Run the Java application with all passed parameters
-java -jar my.jar "$@"
+java -jar keyt.jar "$@"
