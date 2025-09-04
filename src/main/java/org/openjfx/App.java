@@ -10,6 +10,8 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
@@ -499,6 +501,7 @@ public class App extends Application {
         String basicConstraints = "";
         String sha1 = "";
         String sha256 = "";
+        String md5 = "";
         if (x509 != null) {
             try {
                 Collection<List<?>> altNames = x509.getSubjectAlternativeNames();
@@ -532,9 +535,11 @@ public class App extends Application {
             try {
                 java.security.MessageDigest md1 = java.security.MessageDigest.getInstance("SHA-1");
                 java.security.MessageDigest md256 = java.security.MessageDigest.getInstance("SHA-256");
+                java.security.MessageDigest md5d = java.security.MessageDigest.getInstance("MD5");
                 byte[] enc = x509.getEncoded();
-                sha1 = toHex(md1.digest(enc));
-                sha256 = toHex(md256.digest(enc));
+                sha1 = toColonHex(md1.digest(enc));
+                sha256 = toColonHex(md256.digest(enc));
+                md5 = toColonHex(md5d.digest(enc));
             } catch (Exception ignored) { }
         }
 
@@ -557,8 +562,9 @@ public class App extends Application {
         if (!keyUsage.isEmpty()) { grid.add(new Label("Key Usage:"), 0, r); grid.add(new Label(keyUsage), 1, r++); }
         if (!extKeyUsage.isEmpty()) { grid.add(new Label("Ext Key Usage:"), 0, r); grid.add(new Label(extKeyUsage), 1, r++); }
         if (!basicConstraints.isEmpty()) { grid.add(new Label("Basic Constraints:"), 0, r); grid.add(new Label(basicConstraints), 1, r++); }
-        if (!sha1.isEmpty()) { grid.add(new Label("SHA-1:"), 0, r); grid.add(new Label(sha1), 1, r++); }
-        if (!sha256.isEmpty()) { grid.add(new Label("SHA-256:"), 0, r); grid.add(new Label(sha256), 1, r++); }
+        if (!md5.isEmpty()) { final String v = md5; grid.add(new Label("MD5:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> copyToClipboard(v)); grid.add(b, 2, r++); }
+        if (!sha1.isEmpty()) { final String v = sha1; grid.add(new Label("SHA-1:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> copyToClipboard(v)); grid.add(b, 2, r++); }
+        if (!sha256.isEmpty()) { final String v = sha256; grid.add(new Label("SHA-256:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> copyToClipboard(v)); grid.add(b, 2, r++); }
         dlg.getDialogPane().setContent(grid);
         dlg.getButtonTypes().setAll(ButtonType.CLOSE);
         dlg.showAndWait();
@@ -568,6 +574,22 @@ public class App extends Application {
         StringBuilder sb = new StringBuilder(b.length*2);
         for (byte value : b) sb.append(String.format(java.util.Locale.ROOT, "%02X", value));
         return sb.toString();
+    }
+
+    // Format bytes like keytool: colon-separated uppercase hex pairs
+    private static String toColonHex(byte[] b) {
+        StringBuilder sb = new StringBuilder(b.length*3 - 1);
+        for (int i = 0; i < b.length; i++) {
+            if (i > 0) sb.append(":");
+            sb.append(String.format(java.util.Locale.ROOT, "%02X", b[i]));
+        }
+        return sb.toString();
+    }
+
+    private static void copyToClipboard(String text) {
+        ClipboardContent content = new ClipboardContent();
+        content.putString(text);
+        Clipboard.getSystemClipboard().setContent(content);
     }
 
     private Optional<Passwords> promptForKeystoreAndKeyPasswords(Stage owner) {
