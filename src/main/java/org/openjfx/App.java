@@ -299,16 +299,20 @@ public class App extends Application {
 
         var scene = new Scene(root, 640, 480);
         stage.setScene(scene);
+        stage.setTitle("KeyT");
         stage.show();
 
-        // Helper to update status text
-        BiConsumer<String,String> setStatus = (fileName, ksType) -> {
+        // Small helper to update both the status bar and window title
+        java.util.function.BiConsumer<String,String> setStatus = (fileName, ksType) -> {
             if (fileName == null && ksType == null) {
                 statusLabel.setText("Ready");
+                stage.setTitle("KeyT");
             } else if (ksType == null) {
                 statusLabel.setText("File: " + fileName);
+                stage.setTitle("KeyT — " + fileName);
             } else {
                 statusLabel.setText("File: " + fileName + " • Type: " + ksType);
+                stage.setTitle("KeyT — " + fileName + " [" + ksType + "]");
             }
         };
 
@@ -399,7 +403,12 @@ public class App extends Application {
         task.setOnFailed(ev -> Platform.runLater(() -> showException(owner, "Failed to load keystore", task.getException())));
         task.setOnSucceeded(ev -> Platform.runLater(() -> {
             if (ksFile != null) {
-                statusLabel.setText("File: " + ksFile.getName() + " • Type: " + currentKeystoreType);
+                // Update status bar and window title
+                String type = currentKeystoreType == null ? "" : currentKeystoreType;
+                statusLabel.setText("File: " + ksFile.getName() + " • Type: " + type);
+                try {
+                    owner.setTitle("KeyT — " + ksFile.getName() + " [" + type + "]");
+                } catch (Exception ignore) {}
             }
         }));
         showProgressWhile(task);
@@ -458,7 +467,13 @@ public class App extends Application {
                 tableData.add(new TableRowData(ci.getAlias(), ci.getEntryType(), ci.getValidFrom(), ci.getValidUntil(), ci.getSignatureAlgorithm(), ci.getSerialNumber()));
             }
             if (certFile != null) {
+                // Update status bar and window title
+                // setStatus is defined in start(), so update directly here for simplicity
                 statusLabel.setText("File: " + certFile.getName() + " • Type: Certificates");
+                try {
+                    // Try to update window title as well when owner is a Stage
+                    owner.setTitle("KeyT — " + certFile.getName() + " [Certificates]");
+                } catch (Exception ignore) {}
             }
         }));
         task.setOnFailed(e -> Platform.runLater(() -> showException(owner, "Failed to load certificate", task.getException())));

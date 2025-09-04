@@ -69,7 +69,7 @@ Recommendations (prioritized, low effort first):
    - Replace broad catch(Throwable) with specific exceptions; where blanket catches are needed for UI robustness, at least log at debug level before ignoring.
    - Ensure all failure paths in background Tasks route to onFailed with user-facing error and a debug log in the service layer.
 
-3) Factor UI helpers out of App
+3) [X] Factor UI helpers out of App
    - Extract small utilities (hex formatting, clipboard helper, dialog builders) into org.openjfx.util to reduce App class weight.
    - Consider a tiny Controller/View separation for the main table to isolate event wiring.
 
