@@ -2,7 +2,7 @@
 
 KeyT is a simple desktop utility built with JavaFX for viewing and exporting information from Java KeyStores (JKS/PKCS12) and certificate files. It lets you:
 
-- Drag and drop a keystore (.jks/.pks/.p12) or certificate file (.cert/.crt/.der/.pem) to inspect its contents
+- Open a keystore or certificate via File > Open (Cmd/Ctrl+O) or drag-and-drop onto the window
 - View alias, entry type, validity period, signature algorithm, serial number, and certificate fingerprints (MD5/SHA-1/SHA-256) with one-click copy
 - Export a selected certificate to PEM or DER
 - Convert a JKS keystore to PKCS12 (.p12/.pks)

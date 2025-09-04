@@ -85,13 +85,21 @@ public class App extends Application {
             }
         } catch (Throwable ignored) { }
 
-        // Menu bar with File -> Export, Convert to PKS and Help -> About
+        // Menu bar with File -> Open, Export, Convert to PKCS12 and Help -> About
+        MenuItem openItem = new MenuItem("Open File…");
+        // Add accelerator Cmd+O on mac, Ctrl+O elsewhere
+        openItem.setAccelerator(new javafx.scene.input.KeyCodeCombination(
+                javafx.scene.input.KeyCode.O,
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? javafx.scene.input.KeyCombination.META_DOWN
+                        : javafx.scene.input.KeyCombination.CONTROL_DOWN
+        ));
         MenuItem exportItem = new MenuItem("Export");
         exportItem.setDisable(true);
         MenuItem convertItem = new MenuItem("Convert to PKCS12");
         convertItem.setDisable(true);
         Menu fileMenu = new Menu("File");
-        fileMenu.getItems().addAll(exportItem, convertItem);
+        fileMenu.getItems().addAll(openItem, new SeparatorMenuItem(), exportItem, convertItem);
 
         MenuItem aboutItem = new MenuItem("About");
         aboutItem.setOnAction(e -> showAboutDialog(stage));
@@ -245,6 +253,21 @@ public class App extends Application {
                     }
                 });
 
+        // Open action
+        openItem.setOnAction(e -> {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Open File");
+            chooser.getExtensionFilters().addAll(
+                    new FileChooser.ExtensionFilter("Keystores (*.jks, *.ks, *.p12, *.pfx)", "*.jks", "*.ks", "*.p12", "*.pfx"),
+                    new FileChooser.ExtensionFilter("Certificates (*.cert, *.crt, *.der, *.pem, *.p7b, *.p7c, *.spc)", "*.cert", "*.crt", "*.der", "*.pem", "*.p7b", "*.p7c", "*.spc"),
+                    new FileChooser.ExtensionFilter("All Files", "*.*")
+            );
+            File f = chooser.showOpenDialog(stage);
+            if (f != null) {
+                openFile(f, stage);
+            }
+        });
+
         // DnD handlers
         dropZone.setOnDragOver(event -> {
             Dragboard db = event.getDragboard();
@@ -258,31 +281,11 @@ public class App extends Application {
             Dragboard db = event.getDragboard();
             boolean success = false;
             if (db != null && db.hasFiles()) {
-                File ksFile = db.getFiles().stream()
-                        .filter(f -> {
-                            String name = f.getName().toLowerCase(Locale.ROOT);
-                            return name.endsWith(".jks") || name.endsWith(".pks") || name.endsWith(".p12") || name.endsWith(".cert") || name.endsWith(".crt") || name.endsWith(".pem")  || name.endsWith(".der");
-                        })
-                        .findFirst().orElse(null);
-                if (ksFile != null) {
-                    dropText.setText("Loading: " + ksFile.getName());
-                    String lower = ksFile.getName().toLowerCase(Locale.ROOT);
-                    if (lower.endsWith(".jks") || lower.endsWith(".pks") || lower.endsWith(".p12")) {
-                        loadKeystoreIntoTable(ksFile, stage);
-                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem")  || lower.endsWith(".der") || lower.endsWith(".p7b") || lower.endsWith(".p7c") || lower.endsWith(".spc")) {
-                        loadCertificatesIntoTable(ksFile, stage);
-                    }
-                    // refresh menu enables after load
-                    // ensure UI reflects current state (selection-independent items like Convert)
-                    // We are inside start() where updateMenuEnabled is in scope
-                    try {
-                        // Run later to ensure state flags are updated
-                        updateMenuEnabled.run();
-                    } catch (Exception ignore) {}
-                    success = true;
-                } else {
-                    showError(stage, "Please drop a .jks, .p12, .cert, .crt, .der, .pem, .p7b, .p7c or .spc file.");
-                }
+                File f = db.getFiles().get(0);
+                dropText.setText("Loading: " + f.getName());
+                openFile(f, stage);
+                try { updateMenuEnabled.run(); } catch (Exception ignore) {}
+                success = true;
             }
             event.setDropCompleted(success);
             event.consume();
@@ -329,14 +332,7 @@ public class App extends Application {
             if (args != null && !args.isEmpty()) {
                 File cliFile = new File(args.get(0));
                 if (cliFile.exists() && cliFile.isFile()) {
-                    String lower = cliFile.getName().toLowerCase(Locale.ROOT);
-                    if (lower.endsWith(".jks") || lower.endsWith(".pks") || lower.endsWith(".p12")) {
-                        loadKeystoreIntoTable(cliFile, stage);
-                    } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem") || lower.endsWith(".der") || lower.endsWith(".p7b") || lower.endsWith(".p7c") || lower.endsWith(".spc")) {
-                        loadCertificatesIntoTable(cliFile, stage);
-                    } else {
-                        showError(stage, "Unsupported file type: " + cliFile.getName());
-                    }
+                    openFile(cliFile, stage);
                 } else {
                     showError(stage, "File not found: " + cliFile.getPath());
                 }
@@ -347,6 +343,32 @@ public class App extends Application {
     private final KeystoreService keystoreService = new KeystoreService();
     private final CertificateService certificateService = new CertificateService();
     private final ExportService exportService = new ExportService();
+
+    /** Unified file open handler used by menu, drag-and-drop, and CLI. */
+    private void openFile(File file, Stage owner) {
+        if (file == null) return;
+        if (!file.exists() || !file.isFile()) {
+            showError(owner, "File not found: " + file);
+            return;
+        }
+        String lower = file.getName().toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".jks") || lower.endsWith(".ks") || lower.endsWith(".p12") || lower.endsWith(".pfx")) {
+            loadKeystoreIntoTable(file, owner);
+        } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem") || lower.endsWith(".der") || lower.endsWith(".p7b") || lower.endsWith(".p7c") || lower.endsWith(".spc")) {
+            loadCertificatesIntoTable(file, owner);
+        } else {
+            // Unknown extension: try certs first (non-password), then keystore as JKS or PKCS12 based on best effort
+            try {
+                loadCertificatesIntoTable(file, owner);
+            } catch (Exception ignored) {
+                try {
+                    loadKeystoreIntoTable(file, owner);
+                } catch (Exception ex) {
+                    showError(owner, "Unsupported file type: " + file.getName());
+                }
+            }
+        }
+    }
 
     private void loadKeystoreIntoTable(File ksFile, Stage owner) {
         // Run background task for IO to keep UI responsive
