@@ -65,7 +65,7 @@ Recommendations (prioritized, low effort first):
    - Introduce a PasswordScope helper (AutoCloseable) that wipes arrays in close() and limit scope with try-with-resources.
    - Wipe stored fields (currentKeystorePassword/currentKeyPassword) immediately after an operation completes if they must be stored temporarily.
 
-2) Improve exception handling hygiene
+2) [X] Improve exception handling hygiene
    - Replace broad catch(Throwable) with specific exceptions; where blanket catches are needed for UI robustness, at least log at debug level before ignoring.
    - Ensure all failure paths in background Tasks route to onFailed with user-facing error and a debug log in the service layer.
 
