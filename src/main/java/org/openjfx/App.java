@@ -2,7 +2,6 @@ package org.openjfx;
 
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.concurrent.Task;
@@ -20,6 +19,7 @@ import org.openjfx.service.KeystoreService;
 import org.openjfx.service.ServiceExceptions.CertificateLoadException;
 import org.openjfx.service.ServiceExceptions.ExportException;
 import org.openjfx.service.ServiceExceptions.KeystoreLoadException;
+import org.openjfx.util.Dialogs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,16 +27,11 @@ import javax.imageio.ImageIO;
 import java.awt.Image;
 import java.awt.Taskbar;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.security.Key;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.function.BiConsumer;
 
 /**
  * JavaFX App
@@ -156,7 +151,7 @@ public class App extends Application {
         org.openjfx.util.TableViewUtil.applyRowInteractions(
                 tableView,
                 exportItem::fire,
-                data -> { if (data != null) showCertificateDetails(stage, (TableRowData) data); }
+                data -> { if (data != null) showCertificateDetails(stage, data); }
         );
 
                 // Enable/disable menu items based on state
@@ -191,19 +186,7 @@ public class App extends Application {
                         File out = chooser.showSaveDialog(stage);
                         if (out == null) return;
 
-                        Task<Void> task = new Task<>() {
-                            @Override
-                            protected Void call() throws Exception {
-                                String name = out.getName().toLowerCase(Locale.ROOT);
-                                if (name.endsWith(".der")) {
-                                    exportService.exportCertificateDer(cert, out.toPath());
-                                } else {
-                                    exportService.exportCertificatePem(cert, out.toPath());
-                                }
-                                return null;
-                            }
-                        };
-                        task.setOnFailed(ev -> Platform.runLater(() -> showException(stage, "Failed to export certificate", task.getException())));
+                        Task<Void> task = getTask(stage, out, cert);
                         showProgressWhile(task);
                         new Thread(task, "export-cert").start();
                     } catch (Exception ex) {
@@ -341,6 +324,23 @@ public class App extends Application {
                 }
     }
 
+    private Task<Void> getTask(Stage stage, File out, Certificate cert) {
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                String name = out.getName().toLowerCase(Locale.ROOT);
+                if (name.endsWith(".der")) {
+                    exportService.exportCertificateDer(cert, out.toPath());
+                } else {
+                    exportService.exportCertificatePem(cert, out.toPath());
+                }
+                return null;
+            }
+        };
+        task.setOnFailed(ev -> Platform.runLater(() -> showException(stage, "Failed to export certificate", task.getException())));
+        return task;
+    }
+
     private final KeystoreService keystoreService = new KeystoreService();
     private final CertificateService certificateService = new CertificateService();
     private final ExportService exportService = new ExportService();
@@ -428,29 +428,6 @@ public class App extends Application {
         task.setOnCancelled(e -> Platform.runLater(() -> progressIndicator.setVisible(false)));
     }
 
-    private void populateTableFromKeyStore(KeyStore ks) throws Exception {
-        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
-        for (Enumeration<String> e = ks.aliases(); e.hasMoreElements(); ) {
-            String alias = e.nextElement();
-            String entryType = ks.isKeyEntry(alias) ? "Private Key" : (ks.isCertificateEntry(alias) ? "Trusted Certificate" : "Unknown");
-
-            Certificate cert = ks.getCertificate(alias);
-            String validFrom = "";
-            String validUntil = "";
-            String sigAlg = "";
-            String serial = "";
-            if (cert instanceof X509Certificate x509) {
-                Date notBefore = x509.getNotBefore();
-                Date notAfter = x509.getNotAfter();
-                validFrom = fmt.format(notBefore);
-                validUntil = fmt.format(notAfter);
-                sigAlg = x509.getSigAlgName();
-                serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
-            }
-            tableData.add(new TableRowData(alias, entryType, validFrom, validUntil, sigAlg, serial));
-        }
-    }
-
     private void loadCertificatesIntoTable(File certFile, Stage owner) {
         tableData.clear();
         this.currentKeyStore = null;
@@ -482,32 +459,6 @@ public class App extends Application {
         task.setOnFailed(e -> Platform.runLater(() -> showException(owner, "Failed to load certificate", task.getException())));
         showProgressWhile(task);
         new Thread(task, "load-certificates").start();
-    }
-
-    private void populateTableFromCertificates(Collection<? extends Certificate> certs, String fileName) {
-        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
-        int idx = 1;
-        for (Certificate cert : certs) {
-            if (cert instanceof X509Certificate x509) {
-                String alias = x509.getSubjectX500Principal() != null ? x509.getSubjectX500Principal().getName() : (fileName + "#" + idx);
-                String validFrom = fmt.format(x509.getNotBefore());
-                String validUntil = fmt.format(x509.getNotAfter());
-                String sigAlg = x509.getSigAlgName();
-                String serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
-                tableData.add(new TableRowData(alias, "Certificate", validFrom, validUntil, sigAlg, serial));
-                idx++;
-            }
-        }
-    }
-
-    private Optional<char[]> promptForPassword(Stage owner, String message) {
-        TextInputDialog dialog = new TextInputDialog();
-        dialog.setTitle("Keystore Password");
-        dialog.setHeaderText(message);
-        dialog.setContentText("Password:");
-        if (owner != null) dialog.initOwner(owner);
-        Optional<String> result = dialog.showAndWait();
-        return result.map(String::toCharArray);
     }
 
     private void showCertificateDetails(Stage owner, TableRowData data) {
@@ -607,12 +558,6 @@ public class App extends Application {
         dlg.showAndWait();
     }
 
-    private static String toHex(byte[] b) {
-        StringBuilder sb = new StringBuilder(b.length*2);
-        for (byte value : b) sb.append(String.format(java.util.Locale.ROOT, "%02X", value));
-        return sb.toString();
-    }
-
 
     private void showException(Stage owner, String context, Throwable t) {
         // Log full stack at debug for diagnostics; concise message to user
@@ -631,19 +576,11 @@ public class App extends Application {
         } else if (root != null && root.getMessage() != null && root.getMessage().toLowerCase(java.util.Locale.ROOT).contains("password")) {
             userMsg = context + ": Incorrect password.";
         }
-        Alert alert = new Alert(Alert.AlertType.ERROR, userMsg, ButtonType.CLOSE);
-        alert.setTitle("Error");
-        alert.setHeaderText(null);
-        if (owner != null) alert.initOwner(owner);
-        alert.showAndWait();
+        Dialogs.showError(owner, userMsg);
     }
 
     private void showError(Stage owner, String msg) {
         org.openjfx.util.Dialogs.showError(owner, msg);
-    }
-
-    private void showAboutDialog(Stage owner) {
-        org.openjfx.util.Dialogs.showAboutDialog(owner);
     }
 
     public static void main(String[] args) {

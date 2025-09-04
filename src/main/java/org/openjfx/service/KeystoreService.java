@@ -4,7 +4,6 @@ import org.openjfx.model.CertificateInfo;
 import org.openjfx.service.ServiceExceptions.KeystoreLoadException;
 import org.openjfx.service.keystore.KeystoreProviderStrategy;
 import org.openjfx.service.keystore.SunJksPkcs12Strategy;
-import org.openjfx.util.CertificateUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -114,7 +113,25 @@ public class KeystoreService {
         try (FileInputStream fis = new FileInputStream(file)) {
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
             Collection<? extends Certificate> certs = cf.generateCertificates(fis);
-            return CertificateUtil.mapCertificates(certs, file.getName());
+            return mapCertificates(certs, file.getName());
         }
+    }
+
+    private List<CertificateInfo> mapCertificates(Collection<? extends Certificate> certs, String fileName) {
+        List<CertificateInfo> list = new ArrayList<>();
+        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm z");
+        int idx = 1;
+        for (Certificate cert : certs) {
+            if (cert instanceof X509Certificate x509) {
+                String alias = x509.getSubjectX500Principal() != null ? x509.getSubjectX500Principal().getName() : (fileName + "#" + idx);
+                String validFrom = fmt.format(x509.getNotBefore());
+                String validUntil = fmt.format(x509.getNotAfter());
+                String sigAlg = x509.getSigAlgName();
+                String serial = x509.getSerialNumber() != null ? x509.getSerialNumber().toString(16).toUpperCase(Locale.ROOT) : "";
+                list.add(new CertificateInfo(alias, "Certificate", validFrom, validUntil, sigAlg, serial));
+                idx++;
+            }
+        }
+        return list;
     }
 }
