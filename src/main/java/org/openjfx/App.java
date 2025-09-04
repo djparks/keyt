@@ -66,7 +66,12 @@ public class App extends Application {
                 try {
                     javafx.scene.image.Image fxImage = new javafx.scene.image.Image(iconUrl.toExternalForm());
                     stage.getIcons().add(fxImage);
-                } catch (Throwable ignored) { }
+                } catch (RuntimeException re) {
+                    log.debug("Window icon setup failed (JavaFX image)", re);
+                } catch (Error err) {
+                    // Keep UI robust: log and continue
+                    log.debug("Window icon setup encountered error", err);
+                }
 
                 // macOS Dock/task bar icon via AWT Taskbar (if supported)
                 try {
@@ -79,9 +84,13 @@ public class App extends Application {
                             }
                         }
                     }
-                } catch (Throwable ignored) { }
+                } catch (Exception ex) {
+                    log.debug("Taskbar icon setup failed or unsupported", ex);
+                }
             }
-        } catch (Throwable ignored) { }
+        } catch (Exception ex) {
+            log.debug("Startup icon initialization failed", ex);
+        }
 
         // Menu bar with File -> Open, Export, Convert to PKCS12 and Help -> About
         MenuItem openItem = new MenuItem("Open File…");
@@ -270,7 +279,7 @@ public class App extends Application {
                 File f = db.getFiles().get(0);
                 dropText.setText("Loading: " + f.getName());
                 openFile(f, stage);
-                try { updateMenuEnabled.run(); } catch (Exception ignore) {}
+                try { updateMenuEnabled.run(); } catch (Exception ex) { log.debug("Update menu enablement failed during DnD", ex); }
                 success = true;
             }
             event.setDropCompleted(success);
@@ -327,7 +336,9 @@ public class App extends Application {
                     showError(stage, "File not found: " + cliFile.getPath());
                 }
             }
-        } catch (Throwable ignored) { }
+        } catch (Exception ex) {
+                    log.debug("CLI argument handling failed", ex);
+                }
     }
 
     private final KeystoreService keystoreService = new KeystoreService();
@@ -347,16 +358,8 @@ public class App extends Application {
         } else if (lower.endsWith(".cert") || lower.endsWith(".crt") || lower.endsWith(".pem") || lower.endsWith(".der") || lower.endsWith(".p7b") || lower.endsWith(".p7c") || lower.endsWith(".spc")) {
             loadCertificatesIntoTable(file, owner);
         } else {
-            // Unknown extension: try certs first (non-password), then keystore as JKS or PKCS12 based on best effort
-            try {
-                loadCertificatesIntoTable(file, owner);
-            } catch (Exception ignored) {
-                try {
-                    loadKeystoreIntoTable(file, owner);
-                } catch (Exception ex) {
-                    showError(owner, "Unsupported file type: " + file.getName());
-                }
-            }
+            // Unknown extension: default to certificate loader; failures will present a descriptive error via onFailed
+            loadCertificatesIntoTable(file, owner);
         }
     }
 
@@ -386,7 +389,7 @@ public class App extends Application {
                     try {
                         // Prefer the actual KeyStore type when available
                         detected = (ks != null && ks.getType() != null) ? ks.getType() : null;
-                    } catch (Exception ignored) { }
+                    } catch (Exception ex) { log.debug("Could not read KeyStore type; continuing with extension inference", ex); }
                     if (detected == null || detected.isBlank()) {
                         // Fallback to common extensions
                         if (ext.endsWith(".p12") || ext.endsWith(".pfx")) detected = "PKCS12";
@@ -408,7 +411,7 @@ public class App extends Application {
                 statusLabel.setText("File: " + ksFile.getName() + " • Type: " + type);
                 try {
                     owner.setTitle("KeyT — " + ksFile.getName() + " [" + type + "]");
-                } catch (Exception ignore) {}
+                } catch (Exception ex) { log.debug("Failed to update window title for keystore", ex); }
             }
         }));
         showProgressWhile(task);
@@ -473,7 +476,7 @@ public class App extends Application {
                 try {
                     // Try to update window title as well when owner is a Stage
                     owner.setTitle("KeyT — " + certFile.getName() + " [Certificates]");
-                } catch (Exception ignore) {}
+                } catch (Exception ex) { log.debug("Failed to update window title for cert file", ex); }
             }
         }));
         task.setOnFailed(e -> Platform.runLater(() -> showException(owner, "Failed to load certificate", task.getException())));
@@ -523,7 +526,7 @@ public class App extends Application {
                     x509 = xc;
                 }
             }
-        } catch (Exception ignored) { }
+        } catch (Exception ex) { log.debug("Failed to get certificate from keystore for details view", ex); }
 
         String subject = x509 != null && x509.getSubjectX500Principal() != null ? x509.getSubjectX500Principal().getName() : "";
         String issuer = x509 != null && x509.getIssuerX500Principal() != null ? x509.getIssuerX500Principal().getName() : "";
@@ -550,7 +553,7 @@ public class App extends Application {
                     }
                     sans = String.join(", ", parts);
                 }
-            } catch (Exception ignored) { }
+            } catch (Exception ex) { log.debug("Failed to extract Subject Alternative Names", ex); }
             boolean[] ku = x509.getKeyUsage();
             if (ku != null) {
                 String[] names = new String[]{"digitalSignature","nonRepudiation","keyEncipherment","dataEncipherment","keyAgreement","keyCertSign","cRLSign","encipherOnly","decipherOnly"};
@@ -563,7 +566,7 @@ public class App extends Application {
                 if (eku != null) {
                     extKeyUsage = String.join(", ", eku);
                 }
-            } catch (Exception ignored) { }
+            } catch (Exception ex) { log.debug("Failed to read Extended Key Usage", ex); }
             int bc = x509.getBasicConstraints();
             if (bc >= 0) basicConstraints = "CA: true, pathLen=" + bc; else basicConstraints = "CA: false";
             try {
@@ -574,7 +577,7 @@ public class App extends Application {
                 sha1 = org.openjfx.util.HexUtil.toColonHex(md1.digest(enc));
                 sha256 = org.openjfx.util.HexUtil.toColonHex(md256.digest(enc));
                 md5 = org.openjfx.util.HexUtil.toColonHex(md5d.digest(enc));
-            } catch (Exception ignored) { }
+            } catch (Exception ex) { log.debug("Failed to compute certificate fingerprints", ex); }
         }
 
         Alert dlg = new Alert(Alert.AlertType.INFORMATION);

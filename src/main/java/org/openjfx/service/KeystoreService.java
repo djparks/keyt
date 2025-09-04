@@ -75,33 +75,38 @@ public class KeystoreService {
         return Optional.ofNullable(ks.getCertificate(alias));
     }
 
-    public KeyStore convertToPkcs12(KeyStore source, char[] ksPwd, char[] keyPwd) throws Exception {
-        KeyStore p12 = KeyStore.getInstance("PKCS12");
-        p12.load(null, null);
-        char[] keyPassword = (keyPwd != null && keyPwd.length > 0) ? keyPwd : ((ksPwd != null) ? ksPwd : new char[0]);
-        for (Enumeration<String> ealiases = source.aliases(); ealiases.hasMoreElements(); ) {
-            String alias = ealiases.nextElement();
-            if (source.isKeyEntry(alias)) {
-                Key key = source.getKey(alias, keyPassword);
-                Certificate[] chain = source.getCertificateChain(alias);
-                if (chain == null) {
-                    Certificate c = source.getCertificate(alias);
-                    if (c != null) {
-                        chain = new Certificate[]{c};
+    public KeyStore convertToPkcs12(KeyStore source, char[] ksPwd, char[] keyPwd) throws KeystoreLoadException {
+        try {
+            KeyStore p12 = KeyStore.getInstance("PKCS12");
+            p12.load(null, null);
+            char[] keyPassword = (keyPwd != null && keyPwd.length > 0) ? keyPwd : ((ksPwd != null) ? ksPwd : new char[0]);
+            for (Enumeration<String> ealiases = source.aliases(); ealiases.hasMoreElements(); ) {
+                String alias = ealiases.nextElement();
+                if (source.isKeyEntry(alias)) {
+                    Key key = source.getKey(alias, keyPassword);
+                    Certificate[] chain = source.getCertificateChain(alias);
+                    if (chain == null) {
+                        Certificate c = source.getCertificate(alias);
+                        if (c != null) {
+                            chain = new Certificate[]{c};
+                        }
+                    }
+                    if (chain == null || key == null) {
+                        throw new IllegalStateException("Missing key or certificate chain for alias: " + alias);
+                    }
+                    p12.setKeyEntry(alias, key, keyPassword, chain);
+                } else if (source.isCertificateEntry(alias)) {
+                    Certificate cert = source.getCertificate(alias);
+                    if (cert != null) {
+                        p12.setCertificateEntry(alias, cert);
                     }
                 }
-                if (chain == null || key == null) {
-                    throw new Exception("Missing key or certificate chain for alias: " + alias);
-                }
-                p12.setKeyEntry(alias, key, keyPassword, chain);
-            } else if (source.isCertificateEntry(alias)) {
-                Certificate cert = source.getCertificate(alias);
-                if (cert != null) {
-                    p12.setCertificateEntry(alias, cert);
-                }
             }
+            return p12;
+        } catch (Exception e) {
+            log.debug("Convert keystore to PKCS12 failed", e);
+            throw new KeystoreLoadException("Unable to convert keystore to PKCS12", e);
         }
-        return p12;
     }
 
     public List<CertificateInfo> loadCertificates(File file) throws Exception {
