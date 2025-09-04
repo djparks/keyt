@@ -84,7 +84,7 @@ Recommendations (prioritized, low effort first):
 
 6) UX polish
    - Ensure all long operations show progress and are cancelable where feasible.
-   - Normalize keystore type detection (file extension vs. KeyStore.getType) to avoid edge-case mislabeling; fix any typos in labels.
+   - [X] Normalize keystore type detection (file extension vs. KeyStore.getType) to avoid edge-case mislabeling; fix any typos in labels.
 
 7) Extensibility
    - Keep keystore provider strategy extensible; an optional BouncyCastle-based strategy can be added for uncommon keystores.
