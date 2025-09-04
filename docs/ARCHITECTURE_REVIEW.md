@@ -1,136 +1,102 @@
-# Architecture and Code Review for KeyT
+# Architecture and Code Review for KeyT (2025-09-04)
 
-This document reviews the current codebase and proposes targeted improvements, with emphasis on architectural separation, maintainability, testability, and security.
+This document provides an updated architectural and code review for the KeyT application. It reflects the current codebase and recent enhancements (certificate fingerprints with copy-to-clipboard), and offers prioritized recommendations.
 
 Scope reviewed:
-- Source: src/main/java/org/openjfx/App.java, Main.java, SystemInfo.java
+- Source: src/main/java/org/openjfx/*.java, org/openjfx/model/*.java, org/openjfx/service/**/*.java
 - Build: pom.xml
-- Docs/Script: README.md, src/main/resources/keyt.sh
+- Resources: src/main/resources/*
+- Docs: README.md, docs/ARCHITECTURE_REVIEW.md (replaced by this document)
 
-Summary:
-- App.java is a God class combining UI (JavaFX), keystore/certificate IO, conversion/export, and state. This hinders testability and maintainability.
-- Long-running work is done synchronously on the JavaFX Application Thread (e.g., file IO, keystore loading, conversion), which can freeze the UI.
-- Limited logging and structured error handling.
-- Passwords are retained in fields for later operations; while arrays are used and cleared in places, copies remain as instance fields.
-- Packaging uses maven-assembly jar-with-dependencies. That works, but shade or jlink/jpackage could be a better fit depending on distribution goals.
-- Minor script issue: keyt.sh was pointing to my.jar instead of keyt.jar.
+Summary of architecture:
+- Application type: Desktop GUI built with JavaFX (non-modular classpath build).
+- Layering: A pragmatic layered approach is present:
+  - UI: App.java (JavaFX Application) orchestrates the UI, event handling, dialogs, and background tasks.
+  - Services: KeystoreService, CertificateService, ExportService encapsulate IO/crypto operations and mapping to simple model objects.
+  - Strategy: KeystoreProviderStrategy + SunJksPkcs12Strategy provide pluggable keystore loading based on file type.
+  - Models: CertificateInfo, KeystoreInfo provide display-centric POJOs.
+- Concurrency: Long-running operations (keystore/cert loading) are executed on background threads using JavaFX Task with UI updates via Platform.runLater and progress indicator.
+- Logging: SLF4J API with slf4j-simple runtime backend.
+- Packaging: Executable fat JAR using maven-assembly-plugin; JavaFX platform-specific artifacts are included via Maven profiles.
 
-Recommendations
+Key strengths observed:
+- Separation of IO/crypto concerns into services reduces the size of the UI class compared to a monolith and improves testability potential.
+- Background Task usage prevents UI freezes during keystore/certificate loading, with simple progress feedback.
+- Clear user interactions: drag-and-drop support, certificate detail dialog, export actions.
+- Security-conscious touches: char[] used for passwords, wiping arrays after use when possible.
+- Cross-platform build setup for JavaFX with sensible defaults and profiles.
 
-1. Architecture: Separate concerns (MVVM or MVC)
-- UI layer (JavaFX): Stages/Scenes/Controllers or View + ViewModel responsible only for presentation state, user interactions, and triggering operations.
-- Domain/Service layer:
-  - KeystoreService: load, list entries, export certs, convert to PKCS12.
-  - CertificateService: load X.509 files (PEM/DER/bundle), parse metadata.
-  - ExportService: write PEM/DER, name resolution.
-- Model layer:
-  - CertificateInfo (alias, entryType, validFrom, validUntil, sigAlg, serial, chain length, etc.).
-  - KeystoreInfo (type, path, entries), PasswordCredentials (keystorePassword, keyPassword) with lifecycle management.
-- Benefits: easier unit testing (services decoupled from JavaFX), smaller UI classes, increased reuse (CLI future?).
+Notable risks and issues:
+- UI class size: App.java remains large and multi-responsibility (UI, some orchestration state, logic for dialogs, formatting), which can hinder maintainability.
+- Password lifecycle: Copies of passwords are still stored on the App instance for subsequent operations (currentKeystorePassword/currentKeyPassword). While arrays are wiped in places, long-lived storage increases exposure risk.
+- Exception handling: Some catch-all blocks (e.g., catch Exception/Throwable and ignore) remain; most errors are surfaced to dialogs, but diagnostics may be lost if not logged.
+- Limited automated tests: No unit tests are present; services are testable but currently untested in the repo.
+- Packaging via assembly: Works, but shade plugin may offer better resource handling; native packaging not present.
 
-2. Threading and responsiveness
-- Perform IO/CPU-bound tasks in background threads using JavaFX Task or CompletableFuture and update UI on success/failure via Platform.runLater.
-  - Examples: keystore load, conversion, exporting certificates, loading certificate bundles.
-- Provide progress indicator for long operations.
+Runtime view and data flow:
+- Startup: Main launches App (JavaFX). App builds UI, binds table to observable list.
+- File open:
+  - Keystore: prompt for passwords, load via KeystoreService.load on background Task, map entries via KeystoreService.listEntries, update table. Type inferred from file extension, displayed on status bar.
+  - Certificates: CertificateService.loadCertificates reads one or multiple X.509 certs (PEM/DER/PKCS7 handled by CertificateFactory.generateCertificates), mapped to CertificateInfo and displayed.
+- Details: Double-click row to show certificate details including subject/issuer, validity, algorithms, extensions (SAN, KU, EKU, BasicConstraints) when available, and fingerprints (MD5/SHA-1/SHA-256) in keytool-style colon-separated hex with one-click clipboard copy.
+- Export: ExportService writes selected certificate to PEM or DER. JKS→PKCS12 conversion is available via service methods.
 
-3. Password handling and security
-- Avoid storing passwords in long-lived fields. Pass them into service calls when needed and clear immediately after use.
-- Use char[] and explicitly zero arrays in finally blocks. Consider a small PasswordScope helper that ensures wiping on close.
-- For keystore conversion where both keystore and key password are needed, prompt just-in-time or cache in-memory for the minimal duration with an expiry.
-- Consider using KeyStore.Builder with ProtectionParameter for finer control.
+Threading model:
+- Potentially blocking IO runs in Task executed on a new Thread; UI updates are coordinated via Platform.runLater.
+- ProgressIndicator visibility is toggled around Task lifecycle.
 
-4. Error handling and user feedback
-- Centralize error handling in service layer with typed exceptions (e.g., KeystoreLoadException, ExportException) carrying user-friendly messages and causes.
-- In the UI, map exceptions to dialogs with clear guidance (wrong password vs. corrupt file vs. unsupported type).
-- Add validation for file extensions and existence before attempting load; already partially done but can be consolidated in services.
+Error handling and logging:
+- Services throw typed exceptions (ServiceExceptions.*) for load/export issues.
+- UI shows alerts for user-visible errors and leverages SLF4J logging (slf4j-simple) for debug stack traces in services.
 
-5. Logging
-- Introduce SLF4J + a simple backend (e.g., logback-classic or java.util.logging bridge) for diagnostics instead of swallowing exceptions or only showing alerts.
-- Log stack traces at debug level; show concise messages to users.
+Security considerations:
+- Passwords accepted via dialogs; char[] used.
+- Arrays cleared after use in some flows; however, copies stored as fields may remain longer than necessary. Consider shortening lifetime and wiping on completion of each operation.
+- No sensitive data is logged; continue to avoid logging passwords or certificate private material.
 
-6. Extensibility for formats and features
-- Isolate provider-specific code (e.g., SunPKCS12 vs. JKS). Optionally, support BouncyCastle as an alternative provider via a pluggable strategy (useful for older/edge keystores).
-- CertificateService: support PEM bundles, multiple certs in one file (already handled via CertificateFactory.generateCertificates), and potentially PKCS7.
-- Future: view subject/issuer DN, SANs, key usages, fingerprints (SHA-1/SHA-256).
+Build and dependencies:
+- Java 17 target; JavaFX 22.0.1 with platform classifiers.
+- SLF4J API + simple backend at runtime.
+- Executable JAR assembled with maven-assembly-plugin (jar-with-dependencies) with Main set to org.openjfx.Main.
 
-7. Testing strategy
-- Unit tests for services without JavaFX (e.g., load keystore given a test resource; parse cert; export PEM; convert JKS→PKCS12 roundtrip with temporary files).
-- Property-based tests for PEM/DER parsing robustness can be added later.
-- UI tests optional; keep UI thin to minimize need for UI-level tests.
+Recommendations (prioritized, low effort first):
+1) Tighten password lifecycle management
+   - Keep keystore/key passwords only as local variables for the minimal necessary scope; avoid storing them as fields on App when possible.
+   - Introduce a PasswordScope helper (AutoCloseable) that wipes arrays in close() and limit scope with try-with-resources.
+   - Wipe stored fields (currentKeystorePassword/currentKeyPassword) immediately after an operation completes if they must be stored temporarily.
 
-8. Packaging and distribution
-- Continue with shaded/assembled JAR for dev simplicity, but consider:
-  - maven-shade-plugin instead of assembly for better resource merging and minimization.
-  - jlink + jpackage to produce native installers and bundle a runtime, eliminating end-user JDK dependency.
-- Ensure Reproducible Builds by pinning plugin versions (already done) and enabling build reproducibility features where applicable.
+2) Improve exception handling hygiene
+   - Replace broad catch(Throwable) with specific exceptions; where blanket catches are needed for UI robustness, at least log at debug level before ignoring.
+   - Ensure all failure paths in background Tasks route to onFailed with user-facing error and a debug log in the service layer.
 
-9. Modularity and structure
-- Optionally add module-info.java if you plan to use Java modules strongly; otherwise ensure JavaFX on classpath works across platforms (current approach is OK).
-- Package structure proposal:
-  - org.openjfx.ui (controllers, views)
-  - org.openjfx.model (POJOs: CertificateInfo, KeystoreInfo)
-  - org.openjfx.service (KeystoreService, CertificateService, ExportService)
-  - org.openjfx.util (PasswordScope, formatting)
+3) Factor UI helpers out of App
+   - Extract small utilities (hex formatting, clipboard helper, dialog builders) into org.openjfx.util to reduce App class weight.
+   - Consider a tiny Controller/View separation for the main table to isolate event wiring.
 
-10. Small UI/UX improvements
-- Show file name and keystore type in a status bar.
-- Add context menu on table rows for export.
-- Allow double-click to show certificate details in a dialog.
-- Improve drop hint text (remove PKS typo, clarify PKCS12).
+4) Add unit tests for services
+   - KeystoreService: load a sample JKS and PKCS12 from test resources; list entries; conversion roundtrip to PKCS12 in a temp directory.
+   - CertificateService: parse PEM, DER, PKCS7 bundle; map fields; cover error messages for invalid files.
+   - ExportService: export selected certificate to PEM/DER and validate outputs.
 
-Concrete refactor outline (incremental)
-- Step 1: Extract model class CertificateInfo and map App.TableRowData to it; adapt TableView binding.
-- Step 2: Extract KeystoreService with methods:
-  - KeyStore load(File file, char[] ksPassword)
-  - List<CertificateInfo> listEntries(KeyStore ks)
-  - void convertToPkcs12(KeyStore source, char[] ksPwd, char[] keyPwd, Path target)
-  - Optional<Certificate> getCertificate(KeyStore ks, String alias)
-- Step 3: Extract CertificateService with methods:
-  - List<CertificateInfo> loadCertificates(File file)
-- Step 4: Move file IO and keystore parsing from App into the services. Keep App focused on wiring and UI.
-- Step 5: Introduce background Task usage for load/convert/export; add a progress indicator.
-- Step 6: Introduce SLF4J logging and replace broad catch(Throwable) with specific exceptions.
+5) Packaging refinements (optional)
+   - Consider maven-shade-plugin instead of assembly to better merge resources and reduce size.
+   - Later, add jlink/jpackage for native installers and a bundled runtime.
 
-Build/pom suggestions
-- Consider replacing maven-assembly-plugin with maven-shade-plugin for fat JAR builds to avoid potential service descriptor/resource duplication issues:
-  <plugin>
-    <groupId>org.apache.maven.plugins</groupId>
-    <artifactId>maven-shade-plugin</artifactId>
-    <version>3.5.1</version>
-    <executions>
-      <execution>
-        <phase>package</phase>
-        <goals><goal>shade</goal></goals>
-        <configuration>
-          <createDependencyReducedPom>true</createDependencyReducedPom>
-          <transformers>
-            <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-              <mainClass>org.openjfx.Main</mainClass>
-            </transformer>
-          </transformers>
-        </configuration>
-      </execution>
-    </executions>
-  </plugin>
-- For native packaging, add javafx-maven-plugin jlink/jpackage goals later.
-- Add plugins for quality gates (optional):
-  - maven-enforcer-plugin (enforce Maven/Java versions)
-  - spotbugs-maven-plugin, checkstyle, maven-dependency-plugin analyze
+6) UX polish
+   - Ensure all long operations show progress and are cancelable where feasible.
+   - Normalize keystore type detection (file extension vs. KeyStore.getType) to avoid edge-case mislabeling; fix any typos in labels.
 
-Security notes
-- Do not log or display passwords.
-- Be careful when deriving alias from subject names—consider sanitizing for filenames.
-- When exporting, set correct file permissions on sensitive outputs where possible.
+7) Extensibility
+   - Keep keystore provider strategy extensible; an optional BouncyCastle-based strategy can be added for uncommon keystores.
+   - In details dialog, consider adding copy buttons for other fields (subject DN, issuer DN, serial number) to increase utility.
 
-Known minor issues spotted
-- keyt.sh referenced my.jar. Should be keyt.jar.
-- UI thread performs IO-heavy tasks; refactor to background tasks to avoid freezes.
-- Multiple catch(Throwable) blocks swallow exceptions; log them for diagnostics.
-- Menu label says "Convert to PKS" (typo). Consider renaming to "Convert to PKCS12".
+Known minor items to watch
+- There are still a few places using Optional.get()+clone() for password arrays; prefer defensive copies with immediate wiping and clear ownership comments.
+- Ensure progress indicator visibility is reset on all code paths (already handled via listeners around Task; maintain this invariant when adding new tasks).
 
 Roadmap proposal
-- 0.1.1: Fix labels, background task for loads, script fix, add logging skeleton.
-- 0.2.0: Service extraction, models, unit tests.
-- 0.3.0: UX improvements (details dialog), jpackage for native installers.
+- 0.1.2: Improve exception handling, password lifecycle tightening, minor refactors to util, add copy buttons for serial/subject if desired.
+- 0.2.0: Introduce tests for services and CI build, consider shade plugin migration.
+- 0.3.0: Optional: add BouncyCastle strategy; jpackage-based native installers.
 
-This plan keeps changes incremental and low-risk, while positioning the project for easier maintenance and growth.
+This review aims to keep the code incremental and pragmatic while improving robustness, security, and maintainability without over-engineering the UI layer.
