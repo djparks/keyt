@@ -10,8 +10,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
-import javafx.scene.input.Clipboard;
-import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
@@ -102,7 +100,7 @@ public class App extends Application {
         fileMenu.getItems().addAll(openItem, new SeparatorMenuItem(), exportItem, convertItem);
 
         MenuItem aboutItem = new MenuItem("About");
-        aboutItem.setOnAction(e -> showAboutDialog(stage));
+        aboutItem.setOnAction(e -> org.openjfx.util.Dialogs.showAboutDialog(stage));
         Menu helpMenu = new Menu("Help");
         helpMenu.getItems().add(aboutItem);
         MenuBar menuBar = new MenuBar(fileMenu, helpMenu);
@@ -145,24 +143,12 @@ public class App extends Application {
 
         tableView.getColumns().addAll(aliasCol, entryTypeCol, validFromCol, validUntilCol, sigAlgCol, serialCol);
 
-        // Context menu on rows for export
-        tableView.setRowFactory(tv -> {
-            TableRow<TableRowData> row = new TableRow<>();
-            MenuItem exportCtx = new MenuItem("Export Certificate…");
-            exportCtx.setOnAction(e -> exportItem.fire());
-            ContextMenu ctx = new ContextMenu(exportCtx);
-            row.contextMenuProperty().bind(Bindings.when(row.emptyProperty())
-                    .then((ContextMenu) null)
-                    .otherwise(ctx));
-            // Double-click to show details
-            row.setOnMouseClicked(me -> {
-                if (me.getClickCount() == 2 && !row.isEmpty()) {
-                    TableRowData data = row.getItem();
-                    showCertificateDetails(stage, data);
-                }
-            });
-            return row;
-        });
+        // Context menu on rows for export + double-click to show details (factored util)
+        org.openjfx.util.TableViewUtil.applyRowInteractions(
+                tableView,
+                exportItem::fire,
+                data -> { if (data != null) showCertificateDetails(stage, (TableRowData) data); }
+        );
 
                 // Enable/disable menu items based on state
                 Runnable updateMenuEnabled = () -> {
@@ -374,11 +360,11 @@ public class App extends Application {
         // Run background task for IO to keep UI responsive
         tableData.clear();
         // Ask for keystore and key password immediately when a file is dropped
-        Optional<Passwords> pwOpt = promptForKeystoreAndKeyPasswords(owner);
+        Optional<org.openjfx.util.Dialogs.Passwords> pwOpt = org.openjfx.util.Dialogs.promptForKeystoreAndKeyPasswords(owner);
         if (pwOpt.isEmpty()) {
             return; // user cancelled
         }
-        Passwords pw = pwOpt.get();
+        org.openjfx.util.Dialogs.Passwords pw = pwOpt.get();
         Task<Void> task = new Task<>() {
             @Override
             protected Void call() throws Exception {
@@ -570,9 +556,9 @@ public class App extends Application {
                 java.security.MessageDigest md256 = java.security.MessageDigest.getInstance("SHA-256");
                 java.security.MessageDigest md5d = java.security.MessageDigest.getInstance("MD5");
                 byte[] enc = x509.getEncoded();
-                sha1 = toColonHex(md1.digest(enc));
-                sha256 = toColonHex(md256.digest(enc));
-                md5 = toColonHex(md5d.digest(enc));
+                sha1 = org.openjfx.util.HexUtil.toColonHex(md1.digest(enc));
+                sha256 = org.openjfx.util.HexUtil.toColonHex(md256.digest(enc));
+                md5 = org.openjfx.util.HexUtil.toColonHex(md5d.digest(enc));
             } catch (Exception ignored) { }
         }
 
@@ -595,9 +581,9 @@ public class App extends Application {
         if (!keyUsage.isEmpty()) { grid.add(new Label("Key Usage:"), 0, r); grid.add(new Label(keyUsage), 1, r++); }
         if (!extKeyUsage.isEmpty()) { grid.add(new Label("Ext Key Usage:"), 0, r); grid.add(new Label(extKeyUsage), 1, r++); }
         if (!basicConstraints.isEmpty()) { grid.add(new Label("Basic Constraints:"), 0, r); grid.add(new Label(basicConstraints), 1, r++); }
-        if (!md5.isEmpty()) { final String v = md5; grid.add(new Label("MD5:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> copyToClipboard(v)); grid.add(b, 2, r++); }
-        if (!sha1.isEmpty()) { final String v = sha1; grid.add(new Label("SHA-1:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> copyToClipboard(v)); grid.add(b, 2, r++); }
-        if (!sha256.isEmpty()) { final String v = sha256; grid.add(new Label("SHA-256:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> copyToClipboard(v)); grid.add(b, 2, r++); }
+        if (!md5.isEmpty()) { final String v = md5; grid.add(new Label("MD5:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> org.openjfx.util.ClipboardUtil.copyToClipboard(v)); grid.add(b, 2, r++); }
+        if (!sha1.isEmpty()) { final String v = sha1; grid.add(new Label("SHA-1:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> org.openjfx.util.ClipboardUtil.copyToClipboard(v)); grid.add(b, 2, r++); }
+        if (!sha256.isEmpty()) { final String v = sha256; grid.add(new Label("SHA-256:"), 0, r); grid.add(new Label(v), 1, r); Button b = new Button("Copy"); b.setOnAction(ev -> org.openjfx.util.ClipboardUtil.copyToClipboard(v)); grid.add(b, 2, r++); }
         dlg.getDialogPane().setContent(grid);
         dlg.getButtonTypes().setAll(ButtonType.CLOSE);
         dlg.showAndWait();
@@ -609,62 +595,6 @@ public class App extends Application {
         return sb.toString();
     }
 
-    // Format bytes like keytool: colon-separated uppercase hex pairs
-    private static String toColonHex(byte[] b) {
-        StringBuilder sb = new StringBuilder(b.length*3 - 1);
-        for (int i = 0; i < b.length; i++) {
-            if (i > 0) sb.append(":");
-            sb.append(String.format(java.util.Locale.ROOT, "%02X", b[i]));
-        }
-        return sb.toString();
-    }
-
-    private static void copyToClipboard(String text) {
-        ClipboardContent content = new ClipboardContent();
-        content.putString(text);
-        Clipboard.getSystemClipboard().setContent(content);
-    }
-
-    private Optional<Passwords> promptForKeystoreAndKeyPasswords(Stage owner) {
-        Dialog<Passwords> dialog = new Dialog<>();
-        dialog.setTitle("Keystore Credentials");
-        dialog.setHeaderText("Enter keystore and key passwords");
-        if (owner != null) dialog.initOwner(owner);
-        dialog.getDialogPane().getButtonTypes().setAll(ButtonType.OK, ButtonType.CANCEL);
-
-        PasswordField ksField = new PasswordField();
-        ksField.setPromptText("Keystore password (can be empty)");
-        PasswordField keyField = new PasswordField();
-        keyField.setPromptText("Key password (optional)");
-
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-        grid.add(new Label("Keystore password:"), 0, 0);
-        grid.add(ksField, 1, 0);
-        grid.add(new Label("Key password:"), 0, 1);
-        grid.add(keyField, 1, 1);
-        dialog.getDialogPane().setContent(grid);
-
-        dialog.setResultConverter(button -> {
-            if (button == ButtonType.OK) {
-                Passwords p = new Passwords();
-                String ksText = ksField.getText();
-                String keyText = keyField.getText();
-                p.keystorePassword = ksText == null ? new char[0] : ksText.toCharArray();
-                p.keyPassword = keyText == null ? new char[0] : keyText.toCharArray();
-                return p;
-            }
-            return null;
-        });
-
-        return dialog.showAndWait();
-    }
-
-    private static class Passwords {
-        char[] keystorePassword;
-        char[] keyPassword;
-    }
 
     private void showException(Stage owner, String context, Throwable t) {
         // Log full stack at debug for diagnostics; concise message to user
@@ -691,25 +621,11 @@ public class App extends Application {
     }
 
     private void showError(Stage owner, String msg) {
-        Alert alert = new Alert(Alert.AlertType.ERROR, msg, ButtonType.CLOSE);
-        alert.setTitle("Error");
-        alert.setHeaderText(null);
-        if (owner != null) alert.initOwner(owner);
-        alert.showAndWait();
+        org.openjfx.util.Dialogs.showError(owner, msg);
     }
 
     private void showAboutDialog(Stage owner) {
-        String javaVersion = SystemInfo.javaVersion();
-        String javafxVersion = SystemInfo.javafxVersion();
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("About");
-        alert.setHeaderText("About This Application");
-        alert.setContentText("Java version: " + javaVersion + "\nJavaFX version: " + javafxVersion);
-        alert.getButtonTypes().setAll(ButtonType.CLOSE);
-        if (owner != null) {
-            alert.initOwner(owner);
-        }
-        alert.showAndWait();
+        org.openjfx.util.Dialogs.showAboutDialog(owner);
     }
 
     public static void main(String[] args) {
