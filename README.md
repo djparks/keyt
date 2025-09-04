@@ -40,7 +40,7 @@ No extra module parameters are required as the JAR includes the JavaFX dependenc
 ### Open a file on startup
 
 You can pass a keystore or certificate file path as the first argument. Supported extensions:
-- Keystore: .jks, .pks, .p12 (PKCS12)
+- Keystore: .jks, .ks, .p12, .pfx (PKCS12)
 - Certificates: .cert, .crt, .der, .pem (X.509)
 
 Examples:

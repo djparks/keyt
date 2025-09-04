@@ -10,13 +10,13 @@ public class SunJksPkcs12Strategy implements KeystoreProviderStrategy {
     @Override
     public boolean supports(File file) {
         String n = file.getName().toLowerCase(Locale.ROOT);
-        return n.endsWith(".jks") || n.endsWith(".p12") || n.endsWith(".pks");
+        return n.endsWith(".jks") || n.endsWith(".ks") || n.endsWith(".p12") || n.endsWith(".pfx");
     }
 
     @Override
     public String getType(File file) {
         String n = file.getName().toLowerCase(Locale.ROOT);
-        return (n.endsWith(".p12") || n.endsWith(".pks")) ? "PKCS12" : "JKS";
+        return (n.endsWith(".p12") || n.endsWith(".pfx")) ? "PKCS12" : "JKS";
     }
 
     @Override

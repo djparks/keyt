@@ -369,8 +369,19 @@ public class App extends Application {
                     }
                     currentKeyStore = ks;
                     keystoreLoaded = true;
-                    String name = ksFile.getName().toLowerCase(Locale.ROOT);
-                    currentKeystoreType = (name.endsWith(".pks") || name.endsWith(".p12")) ? "PKCS12" : "JKS";
+                    String ext = ksFile.getName().toLowerCase(Locale.ROOT);
+                    String detected = null;
+                    try {
+                        // Prefer the actual KeyStore type when available
+                        detected = (ks != null && ks.getType() != null) ? ks.getType() : null;
+                    } catch (Exception ignored) { }
+                    if (detected == null || detected.isBlank()) {
+                        // Fallback to common extensions
+                        if (ext.endsWith(".p12") || ext.endsWith(".pfx")) detected = "PKCS12";
+                        else if (ext.endsWith(".jks") || ext.endsWith(".ks")) detected = "JKS";
+                        else detected = "Unknown";
+                    }
+                    currentKeystoreType = detected.toUpperCase(java.util.Locale.ROOT);
                     currentKeystorePassword = pw.keystorePassword == null ? null : pw.keystorePassword.clone();
                     currentKeyPassword = pw.keyPassword == null ? null : pw.keyPassword.clone();
                 });
@@ -556,7 +567,7 @@ public class App extends Application {
         if (!issuer.isEmpty()) { grid.add(new Label("Issuer:"), 0, r); grid.add(new Label(issuer), 1, r++); }
         grid.add(new Label("Valid From:"), 0, r); grid.add(new Label(validFrom), 1, r++);
         grid.add(new Label("Valid Until:"), 0, r); grid.add(new Label(validUntil), 1, r++);
-        grid.add(new Label("Signature Alg:"), 0, r); grid.add(new Label(sigAlg), 1, r++);
+        grid.add(new Label("Signature Algorithm:"), 0, r); grid.add(new Label(sigAlg), 1, r++);
         grid.add(new Label("Serial #:"), 0, r); grid.add(new Label(serial), 1, r++);
         if (!sans.isEmpty()) { grid.add(new Label("SANs:"), 0, r); grid.add(new Label(sans), 1, r++); }
         if (!keyUsage.isEmpty()) { grid.add(new Label("Key Usage:"), 0, r); grid.add(new Label(keyUsage), 1, r++); }
